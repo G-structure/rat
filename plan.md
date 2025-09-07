@@ -3,7 +3,9 @@
 
 ### Executive Summary
 
-RAT is a high-performance terminal-based ACP (Agent Client Protocol) client written in Rust, leveraging tachyonfx for stunning visual effects. The project creates a unified interface for interacting with multiple AI coding agents (Claude Code and Gemini CLI) through a standardized protocol, providing a superior alternative to traditional terminal interactions with rich visual feedback, structured edit reviews, and seamless agent switching.
+RAT is a high-performance terminal-based ACP (Agent Client Protocol) client written in Rust, leveraging tachyonfx for stunning visual effects. The project creates a unified interface for interacting with multiple AI coding agents (Claude Code and Gemini CLI) through a standardized protocol, providing a superior alternative to traditional terminal interactions with rich visual feedback, structured edit reviews, and **multi-agent control capabilities**. 
+
+RAT enables developers to manage and control multiple agents simultaneously - switching between different agents for different tasks, running parallel sessions, and maintaining multiple concurrent conversations with different AI models.
 
 ### Project Architecture
 
@@ -19,14 +21,17 @@ RAT is a high-performance terminal-based ACP (Agent Client Protocol) client writ
    - **Claude Code Adapter**: Integration with `@anthropic-ai/claude-code` SDK via subprocess
    - **Gemini Adapter**: Direct integration with Gemini CLI as ACP agent
    - **Unified Interface**: Common adapter trait for seamless agent switching
+   - **Multi-Agent Manager**: Control multiple agent instances simultaneously
    - **Health Monitoring**: Agent availability and capability detection
 
 3. **TUI Framework** (`src/ui/`)
-   - **Main Interface**: Split-pane layout with agent selection, chat, and tool panels
-   - **Chat View**: Message threading with syntax highlighting and code blocks
+   - **Main Interface**: Tabbed layout supporting multiple concurrent agent sessions
+   - **Agent Selector**: Quick switching between active agents with visual indicators
+   - **Chat View**: Message threading with agent identification and syntax highlighting
    - **Edit Review**: Diff viewer with hunk-level accept/reject using tachyonfx transitions
    - **Terminal Integration**: Embedded terminal sessions with streaming output
-   - **Status Bar**: Real-time agent status, session info, and progress indicators
+   - **Multi-Agent Dashboard**: Overview of all active agents and their current tasks
+   - **Status Bar**: Real-time multi-agent status, session info, and progress indicators
 
 4. **Effects System** (`src/effects/`)
    - **Message Animations**: Typewriter effects for AI responses
@@ -58,10 +63,12 @@ crossterm = "0.29"
 
 #### Key Features
 
-1. **Multi-Agent Support**
-   - Seamless switching between Claude Code and Gemini agents
-   - Session persistence across agent changes
-   - Concurrent multi-agent conversations
+1. **Multi-Agent Control**
+   - Simultaneous control of multiple Claude Code and Gemini agent instances
+   - Tabbed interface for managing concurrent agent sessions
+   - Quick agent switching with session preservation
+   - Per-agent configuration and state management
+   - Parallel task execution across different agents
 
 2. **Rich Visual Experience**
    - Animated code diffs with tachyonfx effects
@@ -154,6 +161,7 @@ rat/
 │   │   ├── mod.rs
 │   │   ├── claude_code.rs       # Claude Code adapter
 │   │   ├── gemini.rs            # Gemini CLI adapter
+│   │   ├── manager.rs           # Multi-agent instance manager
 │   │   └── traits.rs            # Common adapter interfaces
 │   ├── ui/
 │   │   ├── mod.rs
