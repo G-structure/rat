@@ -1,0 +1,71 @@
+[package]
+name = "rat"
+version = "0.1.0"
+edition = "2021"
+description = "RAT (Rust Agent Terminal) - High-Performance ACP Client for Claude Code & Gemini"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-username/rat"
+readme = "README.md"
+keywords = ["acp", "agent", "terminal", "ai", "tui"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "rat"
+path = "src/main.rs"
+
+[dependencies]
+# ACP Protocol
+agent-client-protocol = "0.2.0-alpha.6"
+
+# TUI and Effects
+ratatui = { version = "0.29.0", default-features = false, features = ["crossterm"] }
+tachyonfx = { version = "0.18.0", default-features = false, features = ["std"] }
+crossterm = { version = "0.29.0", features = ["event-stream"] }
+
+# Async Runtime
+tokio = { version = "1.0", features = [
+    "macros",
+    "rt",
+    "rt-multi-thread",
+    "time",
+    "io-util",
+    "process",
+    "sync",
+    "net",
+    "fs"
+] }
+futures = "0.3"
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Utilities
+anyhow = "1.0"
+uuid = { version = "1.11", features = ["v4"] }
+dirs = "5.0"
+log = "0.4"
+env_logger = "0.11"
+chrono = { version = "0.4", features = ["serde"] }
+which = "6.0"
+
+[dev-dependencies]
+tempfile = "3.8"
+tokio-test = "0.4"
+
+[features]
+default = ["std"]
+std = ["tachyonfx/std"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
