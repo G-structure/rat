@@ -145,6 +145,10 @@ impl AgentSelector {
         self.visible = false;
     }
 
+    pub fn toggle_visibility(&mut self) {
+        self.visible = !self.visible;
+    }
+
     pub fn is_visible(&self) -> bool {
         self.visible
     }

@@ -85,12 +85,12 @@ impl App {
         // Setup terminal
         crossterm::terminal::enable_raw_mode().context("Failed to enable raw mode")?;
         crossterm::execute!(
-            io::stderr(),
+            io::stdout(),
             crossterm::terminal::EnterAlternateScreen,
             crossterm::event::EnableMouseCapture
         )?;
 
-        let backend = CrosstermBackend::new(io::stderr());
+        let backend = CrosstermBackend::new(io::stdout());
         let mut terminal = Terminal::new(backend)?;
 
         // Take the message receiver
@@ -119,12 +119,18 @@ impl App {
                 .checked_sub(last_tick.elapsed())
                 .unwrap_or_else(|| Duration::from_secs(0));
 
-            // Handle events
+            // Handle events - simplified approach
             if crossterm::event::poll(timeout)? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
-                        if self.handle_key_event(key).await? {
-                            break;
+                if let Ok(event) = crossterm::event::read() {
+                    match event {
+                        Event::Key(key) if key.kind == KeyEventKind::Press => {
+                            info!("Raw key event detected: {:?}", key);
+                            if self.handle_key_event(key).await? {
+                                break;
+                            }
+                        }
+                        _ => {
+                            // Ignore other events for now
                         }
                     }
                 }
@@ -159,7 +165,7 @@ impl App {
         // Restore terminal
         crossterm::terminal::disable_raw_mode()?;
         crossterm::execute!(
-            io::stderr(),
+            io::stdout(),
             crossterm::terminal::LeaveAlternateScreen,
             crossterm::event::DisableMouseCapture
         )?;
@@ -169,11 +175,13 @@ impl App {
     }
 
     async fn handle_key_event(&mut self, key: KeyEvent) -> Result<bool> {
-        debug!("Key event: {:?}", key);
+        info!("Key event received: {:?}", key);
 
         // Global keybindings
         if let Some(quit_key) = self.config.ui.get_keybinding("quit") {
+            info!("Quit key configured as: {}", quit_key);
             if key.code == KeyCode::Char(quit_key.chars().next().unwrap_or('q')) {
+                info!("Quit key pressed! Setting should_quit = true");
                 self.should_quit = true;
                 return Ok(true);
             }

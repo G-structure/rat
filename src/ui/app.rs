@@ -1,5 +1,6 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
+use log::info;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Clear, Paragraph, Tabs},
@@ -219,11 +220,13 @@ impl TuiManager {
                 return Ok(());
             }
             KeyCode::Char('n') => {
-                // Create new session - would need to communicate with app
+                // Create new session with default agent
+                self.create_new_session().await?;
                 return Ok(());
             }
             KeyCode::Char('a') => {
-                // Show agent selector
+                // Show agent selector (toggle visibility)
+                self.agent_selector.toggle_visibility();
                 return Ok(());
             }
             _ => {}
@@ -322,6 +325,35 @@ impl TuiManager {
                 .as_ref()
                 .map(|sid| (tab.agent_name.as_str(), sid))
         })
+    }
+
+    pub async fn create_new_session(&mut self) -> Result<()> {
+        // Create a new tab for a session - for now, we'll use a dummy session
+        // In a real implementation, this would communicate with the app to create a real session
+        let session_id = SessionId(format!("session-{}", uuid::Uuid::new_v4()));
+        let tab_name = format!("Session {}", self.tabs.len() + 1);
+
+        let new_tab = Tab {
+            name: tab_name,
+            agent_name: "claude-code".to_string(), // Default agent
+            session_id: Some(session_id),
+            chat_view: ChatView::new(1000), // Max 1000 messages
+            active: true,
+        };
+
+        // Set all existing tabs to inactive
+        for tab in &mut self.tabs {
+            tab.active = false;
+        }
+
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+
+        info!(
+            "Created new session tab: {}",
+            self.tabs[self.active_tab].name
+        );
+        Ok(())
     }
 }
 
