@@ -77,34 +77,33 @@ impl Message {
 
     pub fn from_session_update(session_id: SessionId, update: acp::SessionUpdate) -> Self {
         let content = match update {
+            acp::SessionUpdate::UserMessageChunk { content } => MessageContent::UserPrompt {
+                content: vec![content],
+            },
             acp::SessionUpdate::AgentMessageChunk { content } => {
                 MessageContent::AgentMessageChunk { content }
             }
-            acp::SessionUpdate::ToolCall(tool_call) => {
-                if tool_call.kind == acp::ToolKind::Edit {
-                    if let Some(edit) = EditProposal::from_acp_tool_call(tool_call) {
-                        MessageContent::EditProposed { edit }
-                    } else {
-                        MessageContent::SessionStatus {
-                            status: "Invalid edit proposal received ".to_string(),
-                        }
-                    }
-                } else {
-                    MessageContent::ToolCall {
-                        tool_call: ToolCallRequest::from_acp_tool_call(tool_call),
-                    }
-                }
+            acp::SessionUpdate::AgentThoughtChunk { content } => {
+                MessageContent::AgentResponse { content }
             }
-            acp::SessionUpdate::ToolCallUpdate(tool_call_update) => {
-                // For now, we'll just log the update.
-                // In the future, we might want to handle this more gracefully.
-                MessageContent::SessionStatus {
-                    status: format!("Tool call update: {:?}", tool_call_update),
-                }
-            }
-            _ => MessageContent::SessionStatus {
-                status: "Unknown update received ".to_string(),
+            acp::SessionUpdate::ToolCall(tool_call) => MessageContent::ToolCall {
+                tool_call: ToolCallRequest::from_acp_tool_call(tool_call),
             },
+            acp::SessionUpdate::ToolCallUpdate(tool_call_update) => MessageContent::SessionStatus {
+                status: format!("Tool call update: {:?}", tool_call_update),
+            },
+            acp::SessionUpdate::Plan(plan) => MessageContent::SessionStatus {
+                status: format!("Agent plan: {} entries", plan.entries.len()),
+            },
+            #[cfg(feature = "unstable")]
+            acp::SessionUpdate::AvailableCommandsUpdate { available_commands } => {
+                MessageContent::SessionStatus {
+                    status: format!(
+                        "Available commands updated: {} commands",
+                        available_commands.len()
+                    ),
+                }
+            }
         };
 
         Self::new(session_id, content)
@@ -124,19 +123,21 @@ impl Message {
 }
 
 impl EditProposal {
-    fn from_acp_tool_call(tool_call: acp::ToolCall) -> Option<Self> {
-        if let Some(acp::ToolCallContent::Diff { diff }) = tool_call.content.get(0) {
-            Some(Self {
-                id: tool_call.id.0.to_string(),
-                file_path: diff.path.to_string_lossy().to_string(),
-                original_content: diff.old_text.clone().unwrap_or_default(),
-                proposed_content: diff.new_text.clone(),
-                diff: String::new(), // Would be computed
-                description: Some(tool_call.title),
-            })
-        } else {
-            None
+    pub fn from_acp_tool_call(tool_call: &acp::ToolCall) -> Option<Self> {
+        // Look for diff content in the tool call
+        for content in &tool_call.content {
+            if let acp::ToolCallContent::Diff { diff } = content {
+                return Some(Self {
+                    id: tool_call.id.0.to_string(),
+                    file_path: diff.path.to_string_lossy().to_string(),
+                    original_content: diff.old_text.clone().unwrap_or_default(),
+                    proposed_content: diff.new_text.clone(),
+                    diff: String::new(), // TODO: compute actual diff
+                    description: Some(tool_call.title.clone()),
+                });
+            }
         }
+        None
     }
 }
 

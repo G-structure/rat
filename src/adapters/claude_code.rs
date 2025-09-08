@@ -10,7 +10,8 @@ use tokio::sync::mpsc;
 use tokio::time::{timeout, Duration};
 
 use super::traits::{AgentAdapter, AgentCapabilities, AgentHealth};
-use crate::acp::{AcpClient, Message, Session, SessionId};
+use crate::acp::Session;
+use crate::acp::{AcpClient, Message, SessionId};
 use crate::app::AppMessage;
 use crate::config::agent::ClaudeCodeConfig;
 
@@ -168,7 +169,11 @@ impl AgentAdapter for ClaudeCodeAdapter {
             .context("Environment check failed")?;
 
         // Create and start ACP client
-        let mut client = AcpClient::new(&self.name, self.command_path.to_str().unwrap())?;
+        let mut client = AcpClient::new(
+            &self.name,
+            self.command_path.to_str().unwrap(),
+            self.message_tx.clone(),
+        );
 
         client.start().await.context("Failed to start ACP client")?;
 
@@ -204,7 +209,7 @@ impl AgentAdapter for ClaudeCodeAdapter {
             .await
             .context("Failed to create session")?;
 
-        let session = Session::with_agent(session_id.clone(), self.name.clone());
+        let session = Session::new(session_id.clone());
         self.sessions.insert(session_id.clone(), session);
 
         debug!("Created Claude Code session: {}", session_id.0);
@@ -217,22 +222,10 @@ impl AgentAdapter for ClaudeCodeAdapter {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Client not connected"))?;
 
-        // Convert string content to ACP Content
-        let acp_content = vec![agent_client_protocol::ContentBlock::from(content.clone())];
-
         client
-            .send_prompt(session_id, acp_content)
+            .send_message(session_id, content)
             .await
             .context("Failed to send message")?;
-
-        // Add user message to session
-        if let Some(session) = self.sessions.get_mut(session_id) {
-            let user_message = Message::user_prompt(
-                session_id.clone(),
-                vec![agent_client_protocol::ContentBlock::from(content)],
-            );
-            session.add_message(user_message);
-        }
 
         Ok(())
     }

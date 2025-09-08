@@ -96,47 +96,82 @@ crossterm = "0.29"
 
 ### Implementation Phases
 
-#### Phase 1: Core Infrastructure (Weeks 1-2)
-- [ ] Basic ACP client implementation using `agent-client-protocol`
-- [ ] Message serialization/deserialization
-- [ ] Session management and connection handling
-- [ ] Basic TUI shell with ratatui
-- [ ] Configuration system with TOML support
+#### Phase 1: Core Infrastructure (Weeks 1-2) - ✅ MOSTLY COMPLETE
+- [ ] **Basic ACP client implementation using `agent-client-protocol`** - ⚠️ NEEDS COMPLETION (client has dummy implementations)
+- [x] **Message serialization/deserialization** - ✅ COMPLETED
+- [ ] **Session management and connection handling** - ⚠️ PARTIAL (structure exists, needs real ACP integration)
+- [x] **Basic TUI shell with ratatui** - ✅ COMPLETED (tabbed interface, keybindings, welcome screen)
+- [x] **Configuration system with TOML support** - ✅ COMPLETED
 
-#### Phase 2: Claude Code Integration (Weeks 3-4)
-- [ ] Claude Code subprocess adapter
-- [ ] Permission system for file operations
-- [ ] Basic edit review interface
-- [ ] Terminal session embedding
-- [ ] Error handling and recovery
+#### Phase 2: Claude Code Integration (Weeks 3-4) - ⚠️ IN PROGRESS
+- [ ] **Claude Code subprocess adapter** - ⚠️ PARTIAL (structure exists, needs implementation)
+- [ ] **Permission system for file operations** - ⚠️ PARTIAL (basic structure, needs real ACP integration)
+- [ ] **Basic edit review interface** - ❌ NOT STARTED (UI structure exists but diff logic missing)
+- [ ] **Terminal session embedding** - ❌ NOT STARTED
+- [x] **Error handling and recovery** - ✅ MOSTLY COMPLETE (basic error handling in place)
 
-#### Phase 3: Gemini Integration (Weeks 5-6)
-- [ ] Gemini CLI integration as ACP agent
-- [ ] Unified agent interface abstraction
-- [ ] Agent switching and session management
-- [ ] MCP server pass-through support
-- [ ] Model selection and configuration
+#### Phase 3: Gemini Integration (Weeks 5-6) - ⚠️ IN PROGRESS  
+- [ ] **Gemini CLI integration as ACP agent** - ⚠️ PARTIAL (structure exists, needs implementation)
+- [x] **Unified agent interface abstraction** - ✅ COMPLETED (AgentAdapter trait implemented)
+- [x] **Agent switching and session management** - ✅ MOSTLY COMPLETE (AgentManager handles multiple agents)
+- [ ] **MCP server pass-through support** - ❌ NOT STARTED
+- [ ] **Model selection and configuration** - ⚠️ PARTIAL (config structure exists)
 
-#### Phase 4: Visual Enhancement (Weeks 7-8)
-- [ ] Tachyonfx integration for UI animations
-- [ ] Code diff visualization with effects
-- [ ] Syntax highlighting with color transitions
-- [ ] Theme system implementation
-- [ ] Status indicators and progress bars
+#### Phase 4: Visual Enhancement (Weeks 7-8) - ❌ EARLY STAGE
+- [ ] **Tachyonfx integration for UI animations** - ⚠️ DEPENDENCY ADDED (effects modules exist but mostly empty)
+- [ ] **Code diff visualization with effects** - ❌ NOT STARTED
+- [ ] **Syntax highlighting with color transitions** - ⚠️ PARTIAL (basic structure exists)  
+- [ ] **Theme system implementation** - ⚠️ PARTIAL (config support added)
+- [x] **Status indicators and progress bars** - ✅ BASIC IMPLEMENTATION (status bar exists)
 
-#### Phase 5: Advanced Features (Weeks 9-10)
-- [ ] Multi-session management
-- [ ] Project-specific configurations
-- [ ] Keybinding customization
-- [ ] Plugin system for custom effects
-- [ ] Performance profiling and optimization
+#### Phase 5: Advanced Features (Weeks 9-10) - ❌ EARLY STAGE
+- [x] **Multi-session management** - ✅ COMPLETED (tabbed sessions, session switching implemented)
+- [x] **Project-specific configurations** - ✅ COMPLETED (config system supports per-project settings)
+- [x] **Keybinding customization** - ✅ COMPLETED (config system with keybinding support)
+- [ ] **Plugin system for custom effects** - ❌ NOT STARTED
+- [ ] **Performance profiling and optimization** - ❌ NOT STARTED
 
-#### Phase 6: Polish & Documentation (Weeks 11-12)
-- [ ] Comprehensive testing suite
-- [ ] User documentation and tutorials
-- [ ] Installation and packaging
-- [ ] Performance benchmarks
-- [ ] Release preparation
+#### Phase 6: Polish & Documentation (Weeks 11-12) - ❌ NOT STARTED
+- [ ] **Comprehensive testing suite** - ⚠️ PARTIAL (basic test structure exists)
+- [ ] **User documentation and tutorials** - ❌ NOT STARTED  
+- [ ] **Installation and packaging** - ❌ NOT STARTED
+- [ ] **Performance benchmarks** - ❌ NOT STARTED
+- [ ] **Release preparation** - ❌ NOT STARTED
+
+---
+
+## CURRENT STATUS SUMMARY (Updated: December 2024)
+
+### ✅ **COMPLETED AREAS (~40% of project)**
+- **Project Structure & Build System**: Full Rust project with proper dependencies
+- **Configuration System**: TOML-based config with agent, UI, and project settings
+- **Core Application Framework**: Event loop, async architecture, message passing
+- **Basic TUI**: Tabbed interface, keybindings, status bar, welcome screen
+- **Multi-Agent Architecture**: AgentManager, adapter pattern, session management
+- **Multi-Session Support**: Concurrent sessions with tab switching
+
+### ⚠️ **PARTIALLY COMPLETE AREAS (~30% of project)**
+- **ACP Client Core**: Structure exists but needs real protocol implementation
+- **Agent Adapters**: Framework in place, needs actual subprocess management
+- **Permission System**: Basic structure, needs ACP integration
+- **Effects System**: Dependencies added, modules exist but mostly empty
+- **Message Routing**: Basic async messaging, needs ACP protocol integration
+
+### ❌ **MISSING CRITICAL COMPONENTS (~30% of project)**
+- **Real ACP Protocol Communication**: Currently using dummy implementations
+- **Subprocess Management**: Agent processes not actually started/managed
+- **Edit Review & Diff Visualization**: Core feature missing
+- **Terminal Embedding**: No embedded terminal functionality
+- **TachyonFX Visual Effects**: Minimal implementation
+- **Testing & Documentation**: Comprehensive coverage missing
+
+### 🚨 **IMMEDIATE PRIORITIES**
+1. **Fix ACP Client Implementation** - Replace dummy implementations with real ACP protocol
+2. **Implement Agent Subprocess Management** - Actually start and communicate with agents  
+3. **Add Basic Edit Review** - Core diff viewing and approval workflow
+4. **Test End-to-End Functionality** - Ensure agent communication works
+
+The project has excellent architectural foundations but needs focused work on the core ACP functionality to become functional.
 
 ### File Structure
 ```
