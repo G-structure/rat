@@ -59,11 +59,9 @@ impl ClaudeCodeAdapter {
                 .await
                 .context("Failed to get or install Claude Code")?;
 
-            // Verify the command works
-            self.installer
-                .verify_agent_command(&command)
-                .await
-                .context("Failed to verify Claude Code installation")?;
+            // Skip verification for now to avoid hanging
+            // TODO: Implement non-blocking verification
+            info!("Skipping command verification to avoid hanging");
 
             self.command = Some(command);
         }

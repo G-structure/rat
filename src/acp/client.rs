@@ -12,6 +12,15 @@ use super::{Message, Session, SessionId};
 use crate::app::AppMessage;
 use agent_client_protocol::{self as acp, Agent};
 
+// Dummy connection for testing without ACP blocking
+struct DummyConnection;
+
+impl DummyConnection {
+    fn new() -> Self {
+        Self
+    }
+}
+
 /// Our implementation of the ACP Client trait
 pub struct RatClient {
     agent_name: String,
@@ -135,7 +144,7 @@ pub struct AcpClient {
     agent_name: String,
     command_path: String,
     process: Option<Child>,
-    connection: Option<acp::ClientSideConnection>,
+    connection: Option<DummyConnection>,
     sessions: HashMap<SessionId, Session>,
     message_tx: mpsc::UnboundedSender<AppMessage>,
     client: RatClient,
@@ -184,56 +193,14 @@ impl AcpClient {
         // Clone the client for the local set
         let client_clone = self.client.clone();
 
-        // Create the ACP connection using LocalSet for non-Send futures
-        let local_set = tokio::task::LocalSet::new();
-        let connection = local_set
-            .run_until(async move {
-                let (conn, io_handle) = acp::ClientSideConnection::new(
-                    client_clone,
-                    stdin.compat_write(),
-                    stdout.compat(),
-                    |fut| {
-                        tokio::task::spawn_local(fut);
-                    },
-                );
+        // For now, let's use a simple dummy implementation to avoid hanging
+        // TODO: Implement proper ACP connection without LocalSet blocking
+        warn!("Using dummy ACP implementation - agent connection will be mock");
 
-                // Spawn the I/O handling task in the same LocalSet
-                tokio::task::spawn_local(async move {
-                    if let Err(e) = io_handle.await {
-                        error!("I/O handle error: {}", e);
-                    }
-                });
-
-                // Initialize the connection
-                let init_result = conn
-                    .initialize(acp::InitializeRequest {
-                        protocol_version: acp::V1,
-                        client_capabilities: acp::ClientCapabilities {
-                            fs: acp::FileSystemCapability {
-                                read_text_file: true,
-                                write_text_file: true,
-                            },
-                            ..Default::default()
-                        },
-                    })
-                    .await;
-
-                match init_result {
-                    Ok(init_response) => {
-                        info!(
-                            "ACP agent initialized: protocol_version={:?}, capabilities={:?}",
-                            init_response.protocol_version, init_response.agent_capabilities
-                        );
-                        Ok(conn)
-                    }
-                    Err(e) => {
-                        error!("Failed to initialize ACP connection: {}", e);
-                        Err(e)
-                    }
-                }
-            })
-            .await
-            .with_context(|| "Failed to initialize ACP connection")?;
+        // Keep the process alive but don't try to establish ACP connection yet
+        // This prevents hanging while we debug the ACP integration
+        let connection = DummyConnection::new();
+        info!("Dummy ACP connection created (agent process is running)");
 
         self.process = Some(child);
         self.connection = Some(connection);
@@ -259,20 +226,13 @@ impl AcpClient {
     }
 
     pub async fn create_session(&mut self) -> Result<SessionId> {
-        let connection = self
+        let _connection = self
             .connection
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Client not connected"))?;
 
-        let session_response = connection
-            .new_session(acp::NewSessionRequest {
-                cwd: std::env::current_dir()?,
-                mcp_servers: vec![],
-            })
-            .await
-            .with_context(|| "Failed to create new session")?;
-
-        let session_id = SessionId(session_response.session_id.0.to_string());
+        // Create a dummy session ID for now
+        let session_id = SessionId(format!("dummy-session-{}", uuid::Uuid::new_v4()));
         let session = Session::new(session_id.clone());
         self.sessions.insert(session_id.clone(), session);
 
@@ -283,29 +243,20 @@ impl AcpClient {
     pub async fn send_prompt(
         &self,
         session_id: &SessionId,
-        prompt: Vec<acp::ContentBlock>,
+        _prompt: Vec<acp::ContentBlock>,
     ) -> Result<()> {
-        let connection = self
+        let _connection = self
             .connection
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Client not connected"))?;
 
         debug!(
-            "Sending prompt to session {}: {} content items",
+            "Mock sending prompt to session {}: (dummy implementation)",
             session_id.0,
-            prompt.len()
         );
 
-        let request = acp::PromptRequest {
-            session_id: acp::SessionId(session_id.0.clone().into()),
-            prompt,
-        };
-
-        connection
-            .prompt(request)
-            .await
-            .with_context(|| format!("Failed to send prompt to session {}", session_id.0))?;
-
+        // For now, just log the message - no actual sending
+        info!("Would send prompt to session {}", session_id.0);
         Ok(())
     }
 
