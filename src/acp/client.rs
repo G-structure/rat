@@ -3,22 +3,149 @@ use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
+use std::thread;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use super::{Message, Session, SessionId};
 use crate::app::AppMessage;
 use agent_client_protocol::{self as acp, Agent};
 
-// Dummy connection for testing without ACP blocking
-struct DummyConnection;
+// Commands that can be sent to the ACP thread
+#[derive(Debug)]
+enum AcpCommand {
+    CreateSession {
+        respond_to: oneshot::Sender<Result<String>>,
+    },
+    SendPrompt {
+        session_id: String,
+        prompt: Vec<acp::ContentBlock>,
+        respond_to: oneshot::Sender<Result<()>>,
+    },
+}
 
-impl DummyConnection {
-    fn new() -> Self {
-        Self
+// Connection wrapper that communicates with ACP thread
+struct RealAcpConnection {
+    command_tx: mpsc::UnboundedSender<AcpCommand>,
+}
+
+impl RealAcpConnection {
+    async fn create_session(&self) -> Result<String> {
+        let (tx, rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::CreateSession { respond_to: tx })
+            .map_err(|_| anyhow::anyhow!("ACP thread disconnected"))?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("ACP thread response failed"))?
     }
+
+    async fn send_prompt(&self, session_id: String, prompt: Vec<acp::ContentBlock>) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::SendPrompt {
+                session_id,
+                prompt,
+                respond_to: tx,
+            })
+            .map_err(|_| anyhow::anyhow!("ACP thread disconnected"))?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("ACP thread response failed"))?
+    }
+}
+
+// Main function for the ACP thread that runs in a single-threaded runtime with LocalSet
+async fn acp_thread_main(
+    agent_name: String,
+    client: RatClient,
+    stdin: tokio::process::ChildStdin,
+    stdout: tokio::process::ChildStdout,
+    mut command_rx: mpsc::UnboundedReceiver<AcpCommand>,
+) {
+    info!("ACP thread main starting for agent: {}", agent_name);
+
+    // Convert tokio streams to compatibility layer for ACP
+    let stdin_compat = stdin.compat_write();
+    let stdout_compat = stdout.compat();
+
+    // Create ACP connection using LocalSet (which requires single-threaded runtime)
+    let (mut connection, io_task) =
+        acp::ClientSideConnection::new(client, stdin_compat, stdout_compat, |fut| {
+            tokio::task::spawn_local(fut);
+        });
+
+    info!("Successfully established ACP connection for {}", agent_name);
+
+    // Start the IO task
+    tokio::task::spawn_local(async move {
+        if let Err(e) = io_task.await {
+            error!("ACP IO task failed: {}", e);
+        }
+    });
+
+    let mut sessions: HashMap<String, acp::SessionId> = HashMap::new();
+
+    // Process commands from main thread
+    while let Some(command) = command_rx.recv().await {
+        match command {
+            AcpCommand::CreateSession { respond_to } => {
+                info!("Creating new ACP session");
+                match connection
+                    .new_session(acp::NewSessionRequest {
+                        cwd: std::env::current_dir().unwrap_or_else(|_| "/tmp".into()),
+                        mcp_servers: vec![],
+                    })
+                    .await
+                {
+                    Ok(response) => {
+                        let session_id_str = response.session_id.0.to_string();
+                        sessions.insert(session_id_str.clone(), response.session_id);
+                        info!("Created ACP session: {}", session_id_str);
+                        let _ = respond_to.send(Ok(session_id_str));
+                    }
+                    Err(e) => {
+                        error!("Failed to create ACP session: {}", e);
+                        let _ = respond_to
+                            .send(Err(anyhow::anyhow!("Failed to create session: {}", e)));
+                    }
+                }
+            }
+            AcpCommand::SendPrompt {
+                session_id,
+                prompt,
+                respond_to,
+            } => {
+                info!("Sending prompt to session: {}", session_id);
+                if let Some(acp_session_id) = sessions.get(&session_id) {
+                    match connection
+                        .prompt(acp::PromptRequest {
+                            session_id: acp_session_id.clone(),
+                            prompt: prompt,
+                        })
+                        .await
+                    {
+                        Ok(_response) => {
+                            debug!("Successfully sent prompt to session {}", session_id);
+                            let _ = respond_to.send(Ok(()));
+                        }
+                        Err(e) => {
+                            error!("Failed to send prompt to session {}: {}", session_id, e);
+                            let _ = respond_to
+                                .send(Err(anyhow::anyhow!("Failed to send prompt: {}", e)));
+                        }
+                    }
+                } else {
+                    error!("Session not found: {}", session_id);
+                    let _ =
+                        respond_to.send(Err(anyhow::anyhow!("Session not found: {}", session_id)));
+                }
+            }
+        }
+    }
+
+    info!("ACP thread main exiting for agent: {}", agent_name);
 }
 
 /// Our implementation of the ACP Client trait
@@ -144,7 +271,8 @@ pub struct AcpClient {
     agent_name: String,
     command_path: String,
     process: Option<Child>,
-    connection: Option<DummyConnection>,
+    connection: Option<RealAcpConnection>,
+    acp_thread_handle: Option<thread::JoinHandle<()>>,
     sessions: HashMap<SessionId, Session>,
     message_tx: mpsc::UnboundedSender<AppMessage>,
     client: RatClient,
@@ -163,6 +291,7 @@ impl AcpClient {
             command_path: command_path.to_string(),
             process: None,
             connection: None,
+            acp_thread_handle: None,
             sessions: HashMap::new(),
             message_tx,
             client,
@@ -190,29 +319,63 @@ impl AcpClient {
             .take()
             .ok_or_else(|| anyhow::anyhow!("Failed to get stdout handle"))?;
 
-        // Clone the client for the local set
+        // Create channel for communication with ACP thread
+        let (command_tx, command_rx) = mpsc::unbounded_channel::<AcpCommand>();
+
+        // Clone the client for the ACP thread
         let client_clone = self.client.clone();
+        let agent_name = self.agent_name.clone();
 
-        // For now, let's use a simple dummy implementation to avoid hanging
-        // TODO: Implement proper ACP connection without LocalSet blocking
-        warn!("Using dummy ACP implementation - agent connection will be mock");
+        // Spawn ACP thread with single-threaded runtime
+        let acp_handle = thread::spawn(move || {
+            info!("Starting ACP thread with single-threaded runtime");
 
-        // Keep the process alive but don't try to establish ACP connection yet
-        // This prevents hanging while we debug the ACP integration
-        let connection = DummyConnection::new();
-        info!("Dummy ACP connection created (agent process is running)");
+            // Create single-threaded runtime for LocalSet compatibility
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create single-threaded runtime");
+
+            rt.block_on(async {
+                let local = tokio::task::LocalSet::new();
+                local
+                    .run_until(acp_thread_main(
+                        agent_name,
+                        client_clone,
+                        stdin,
+                        stdout,
+                        command_rx,
+                    ))
+                    .await
+            });
+
+            info!("ACP thread exiting");
+        });
+
+        // Create connection wrapper
+        let connection = RealAcpConnection { command_tx };
 
         self.process = Some(child);
         self.connection = Some(connection);
+        self.acp_thread_handle = Some(acp_handle);
 
+        info!("Real ACP connection established with threaded runtime");
         Ok(())
     }
 
     pub async fn stop(&mut self) -> Result<()> {
         info!("Stopping ACP agent: {}", self.agent_name);
 
-        // Close connection first
+        // Close connection first (this will drop command_tx and terminate ACP thread)
         self.connection = None;
+
+        // Wait for ACP thread to finish
+        if let Some(handle) = self.acp_thread_handle.take() {
+            info!("Waiting for ACP thread to finish");
+            if let Err(e) = handle.join() {
+                warn!("ACP thread panicked: {:?}", e);
+            }
+        }
 
         // Kill the process
         if let Some(mut process) = self.process.take() {
@@ -226,37 +389,37 @@ impl AcpClient {
     }
 
     pub async fn create_session(&mut self) -> Result<SessionId> {
-        let _connection = self
+        let connection = self
             .connection
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Client not connected"))?;
 
-        // Create a dummy session ID for now
-        let session_id = SessionId(format!("dummy-session-{}", uuid::Uuid::new_v4()));
+        // Create session via ACP thread
+        let acp_session_id = connection.create_session().await?;
+        let session_id = SessionId(acp_session_id);
         let session = Session::new(session_id.clone());
         self.sessions.insert(session_id.clone(), session);
 
-        info!("Created new session: {}", session_id.0);
+        info!("Created new ACP session: {}", session_id.0);
         Ok(session_id)
     }
 
     pub async fn send_prompt(
         &self,
         session_id: &SessionId,
-        _prompt: Vec<acp::ContentBlock>,
+        prompt: Vec<acp::ContentBlock>,
     ) -> Result<()> {
-        let _connection = self
+        let connection = self
             .connection
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Client not connected"))?;
 
-        debug!(
-            "Mock sending prompt to session {}: (dummy implementation)",
-            session_id.0,
-        );
+        debug!("Sending prompt to session {}", session_id.0);
 
-        // For now, just log the message - no actual sending
-        info!("Would send prompt to session {}", session_id.0);
+        // Send prompt via ACP thread
+        connection.send_prompt(session_id.0.clone(), prompt).await?;
+
+        info!("Successfully sent prompt to session {}", session_id.0);
         Ok(())
     }
 
