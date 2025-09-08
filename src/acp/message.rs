@@ -15,13 +15,13 @@ pub struct Message {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MessageContent {
     UserPrompt {
-        content: Vec<acp::Content>,
+        content: Vec<acp::ContentBlock>,
     },
     AgentResponse {
-        content: acp::Content,
+        content: acp::ContentBlock,
     },
     AgentMessageChunk {
-        content: acp::Content,
+        content: acp::ContentBlock,
     },
     EditProposed {
         edit: EditProposal,
@@ -80,25 +80,41 @@ impl Message {
             acp::SessionUpdate::AgentMessageChunk { content } => {
                 MessageContent::AgentMessageChunk { content }
             }
-            acp::SessionUpdate::EditProposed { edit } => MessageContent::EditProposed {
-                edit: EditProposal::from_acp_edit(edit),
-            },
-            acp::SessionUpdate::ToolCallRequested { tool_call } => MessageContent::ToolCall {
-                tool_call: ToolCallRequest::from_acp_tool_call(tool_call),
-            },
+            acp::SessionUpdate::ToolCall(tool_call) => {
+                if tool_call.kind == acp::ToolKind::Edit {
+                    if let Some(edit) = EditProposal::from_acp_tool_call(tool_call) {
+                        MessageContent::EditProposed { edit }
+                    } else {
+                        MessageContent::SessionStatus {
+                            status: "Invalid edit proposal received ".to_string(),
+                        }
+                    }
+                } else {
+                    MessageContent::ToolCall {
+                        tool_call: ToolCallRequest::from_acp_tool_call(tool_call),
+                    }
+                }
+            }
+            acp::SessionUpdate::ToolCallUpdate(tool_call_update) => {
+                // For now, we'll just log the update.
+                // In the future, we might want to handle this more gracefully.
+                MessageContent::SessionStatus {
+                    status: format!("Tool call update: {:?}", tool_call_update),
+                }
+            }
             _ => MessageContent::SessionStatus {
-                status: "Unknown update received".to_string(),
+                status: "Unknown update received ".to_string(),
             },
         };
 
         Self::new(session_id, content)
     }
 
-    pub fn user_prompt(session_id: SessionId, content: Vec<acp::Content>) -> Self {
+    pub fn user_prompt(session_id: SessionId, content: Vec<acp::ContentBlock>) -> Self {
         Self::new(session_id, MessageContent::UserPrompt { content })
     }
 
-    pub fn agent_response(session_id: SessionId, content: acp::Content) -> Self {
+    pub fn agent_response(session_id: SessionId, content: acp::ContentBlock) -> Self {
         Self::new(session_id, MessageContent::AgentResponse { content })
     }
 
@@ -108,14 +124,18 @@ impl Message {
 }
 
 impl EditProposal {
-    fn from_acp_edit(edit: acp::Edit) -> Self {
-        Self {
-            id: Uuid::new_v4().to_string(),
-            file_path: edit.path.unwrap_or_else(|| "unknown".to_string()),
-            original_content: String::new(), // Would be populated from file system
-            proposed_content: edit.new_text.unwrap_or_default(),
-            diff: String::new(), // Would be computed
-            description: edit.description,
+    fn from_acp_tool_call(tool_call: acp::ToolCall) -> Option<Self> {
+        if let Some(acp::ToolCallContent::Diff { diff }) = tool_call.content.get(0) {
+            Some(Self {
+                id: tool_call.id.0.to_string(),
+                file_path: diff.path.to_string_lossy().to_string(),
+                original_content: diff.old_text.clone().unwrap_or_default(),
+                proposed_content: diff.new_text.clone(),
+                diff: String::new(), // Would be computed
+                description: Some(tool_call.title),
+            })
+        } else {
+            None
         }
     }
 }
@@ -123,9 +143,9 @@ impl EditProposal {
 impl ToolCallRequest {
     fn from_acp_tool_call(tool_call: acp::ToolCall) -> Self {
         Self {
-            id: tool_call.call_id.clone(),
-            tool_name: tool_call.name,
-            parameters: tool_call.arguments,
+            id: tool_call.id.0.to_string(),
+            tool_name: format!("{:?}", tool_call.kind),
+            parameters: tool_call.raw_input.unwrap_or_default(),
             requires_permission: true, // Default to requiring permission
         }
     }

@@ -37,7 +37,7 @@ impl SyntaxHighlighter {
         Self::default()
     }
 
-    pub fn highlight_text(&self, text: &str, language: &str) -> Vec<Span> {
+    pub fn highlight_text<'a>(&self, text: &'a str, language: &str) -> Vec<Span<'a>> {
         if let Some(config) = self.language_configs.get(language) {
             self.highlight_with_config(text, config)
         } else {
@@ -46,7 +46,7 @@ impl SyntaxHighlighter {
         }
     }
 
-    fn highlight_with_config(&self, text: &str, config: &LanguageConfig) -> Vec<Span> {
+    fn highlight_with_config<'a>(&self, text: &'a str, config: &LanguageConfig) -> Vec<Span<'a>> {
         let mut spans = Vec::new();
         let mut current_pos = 0;
 
@@ -157,15 +157,16 @@ impl SyntaxHighlighter {
         }
 
         if !current_token.is_empty() {
+            let token_type = if in_string {
+                TokenType::String
+            } else if in_comment {
+                TokenType::Comment
+            } else {
+                self.classify_token(&current_token)
+            };
             tokens.push(Token {
                 text: current_token,
-                token_type: if in_string {
-                    TokenType::String
-                } else if in_comment {
-                    TokenType::Comment
-                } else {
-                    self.classify_token(&current_token)
-                },
+                token_type,
             });
         }
 
@@ -215,9 +216,9 @@ impl SyntaxHighlighter {
             number_style: Style::default().fg(Color::Magenta),
         };
 
-        self.language_configs.insert("rust".to_string(), config);
         self.language_configs
-            .insert("rs".to_string(), config.clone());
+            .insert("rust".to_string(), config.clone());
+        self.language_configs.insert("rs".to_string(), config);
     }
 
     fn add_python_config(&mut self) {

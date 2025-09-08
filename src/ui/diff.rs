@@ -45,7 +45,11 @@ impl DiffView {
         let items: Vec<ListItem> = self
             .proposals
             .iter()
-            .map(|proposal| self.format_proposal_item(proposal))
+            .map(|proposal| {
+                let description = proposal.description.as_deref().unwrap_or("Edit file");
+                let item_text = format!("{}: {}", proposal.file_path, description);
+                ListItem::new(item_text).style(Style::default().yellow())
+            })
             .collect();
 
         let list = List::new(items)
@@ -126,7 +130,7 @@ impl DiffView {
         ListItem::new(item_text).style(Style::default().yellow())
     }
 
-    fn format_diff_content(&self, proposal: &EditProposal) -> Vec<ListItem> {
+    fn format_diff_content<'a>(&self, proposal: &'a EditProposal) -> Vec<ListItem<'a>> {
         if proposal.diff.is_empty() {
             // Generate a simple diff if not provided
             self.generate_simple_diff(proposal)
@@ -140,7 +144,7 @@ impl DiffView {
         }
     }
 
-    fn generate_simple_diff(&self, proposal: &EditProposal) -> Vec<ListItem> {
+    fn generate_simple_diff<'a>(&self, proposal: &'a EditProposal) -> Vec<ListItem<'a>> {
         let mut items = Vec::new();
 
         items.push(ListItem::new("--- Original").style(Style::default().red()));
@@ -165,7 +169,7 @@ impl DiffView {
         items
     }
 
-    fn format_diff_line(&self, line: &str) -> ListItem {
+    fn format_diff_line<'a>(&self, line: &'a str) -> ListItem<'a> {
         if line.starts_with('+') {
             ListItem::new(line).style(Style::default().green())
         } else if line.starts_with('-') {

@@ -6,15 +6,59 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
+use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use uuid::Uuid;
 
-use agent_client_protocol::{self as acp, Client};
-
 use super::{Message, Session, SessionId};
+use agent_client_protocol::{self as acp, Agent, Client, ClientSideConnection, ProtocolVersion};
+use futures::future::LocalBoxFuture;
+use futures::FutureExt;
+
+struct DummyClient;
+
+impl acp::Client for DummyClient {
+    fn request_permission(
+        &self,
+        _req: acp::RequestPermissionRequest,
+    ) -> LocalBoxFuture<Result<acp::RequestPermissionResponse, acp::Error>> {
+        async {
+            Ok(acp::RequestPermissionResponse {
+                outcome: acp::RequestPermissionOutcome::Cancelled,
+            })
+        }
+        .boxed_local()
+    }
+
+    fn write_text_file(
+        &self,
+        _req: acp::WriteTextFileRequest,
+    ) -> LocalBoxFuture<Result<(), acp::Error>> {
+        async { Ok(()) }.boxed_local()
+    }
+
+    fn read_text_file(
+        &self,
+        _req: acp::ReadTextFileRequest,
+    ) -> LocalBoxFuture<Result<acp::ReadTextFileResponse, acp::Error>> {
+        async {
+            Ok(acp::ReadTextFileResponse {
+                content: String::new(),
+            })
+        }
+        .boxed_local()
+    }
+
+    fn session_notification(
+        &self,
+        _notification: acp::SessionNotification,
+    ) -> LocalBoxFuture<Result<(), acp::Error>> {
+        async { Ok(()) }.boxed_local()
+    }
+}
 
 pub struct AcpClient {
     process: Option<Child>,
-    client: Option<acp::client::Client>,
+    client: Option<acp::ClientSideConnection>,
     sessions: HashMap<SessionId, Session>,
     message_tx: mpsc::UnboundedSender<Message>,
     message_rx: Option<mpsc::UnboundedReceiver<Message>>,
@@ -57,14 +101,27 @@ impl AcpClient {
             .take()
             .ok_or_else(|| anyhow::anyhow!("Failed to get stdout handle"))?;
 
-        // Create ACP client
-        let client = acp::client::Client::new(stdin, stdout);
+        let local = tokio::task::LocalSet::new();
+        let (client, io_task) = local
+            .run_until(async move {
+                acp::ClientSideConnection::new(
+                    DummyClient,
+                    stdin.compat_write(),
+                    stdout.compat(),
+                    |fut| {
+                        tokio::task::spawn_local(fut);
+                    },
+                )
+            })
+            .await;
+
+        tokio::task::spawn_local(io_task);
 
         // Initialize the connection
         let init_response = client
             .initialize(acp::InitializeRequest {
-                client_name: "rat".to_string(),
-                client_version: env!("CARGO_PKG_VERSION").to_string(),
+                protocol_version: acp::V0,
+                client_capabilities: Default::default(),
             })
             .await?;
 
@@ -103,7 +160,12 @@ impl AcpClient {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Client not connected"))?;
 
-        let session_response = client.new_session(acp::NewSessionRequest {}).await?;
+        let session_response = client
+            .new_session(acp::NewSessionRequest {
+                cwd: std::env::current_dir()?,
+                mcp_servers: vec![],
+            })
+            .await?;
         let session_id = SessionId(session_response.session_id.0.to_string());
 
         let session = Session::new(session_id.clone());
@@ -116,7 +178,7 @@ impl AcpClient {
     pub async fn send_prompt(
         &self,
         session_id: &SessionId,
-        prompt: Vec<acp::Content>,
+        prompt: Vec<acp::ContentBlock>,
     ) -> Result<()> {
         let client = self
             .client

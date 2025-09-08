@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 
 use crate::acp::{Message, MessageContent};
 
+#[derive(Debug, Clone)]
 pub struct ChatView {
     messages: VecDeque<Message>,
     max_messages: usize,
@@ -162,10 +163,11 @@ impl ChatView {
         }
     }
 
-    fn content_to_string(&self, content: &agent_client_protocol::Content) -> String {
+    fn content_to_string(&self, content: &agent_client_protocol::ContentBlock) -> String {
         match content {
-            agent_client_protocol::Content::Text(text) => text.clone(),
-            agent_client_protocol::Content::Image(_) => "[Image]".to_string(),
+            agent_client_protocol::ContentBlock::Text(text) => text.text.clone(),
+            agent_client_protocol::ContentBlock::Image(_) => "[Image]".to_string(),
+            _ => "[Unsupported Content]".to_string(),
         }
     }
 

@@ -100,8 +100,9 @@ impl App {
             .ok_or_else(|| anyhow::anyhow!("Message receiver already taken"))?;
 
         // Auto-connect configured agents
-        for agent_name in &self.config.agents.auto_connect {
-            if let Err(e) = self.connect_agent(agent_name).await {
+        let auto_connect_agents = self.config.agents.auto_connect.clone();
+        for agent_name in auto_connect_agents {
+            if let Err(e) = self.connect_agent(&agent_name).await {
                 warn!("Failed to auto-connect agent '{}': {}", agent_name, e);
                 let _ = self.message_tx.send(AppMessage::Error {
                     error: format!("Failed to connect to {}: {}", agent_name, e),

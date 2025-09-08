@@ -146,7 +146,7 @@ impl ClaudeCodeAdapter {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl AgentAdapter for ClaudeCodeAdapter {
     fn name(&self) -> &str {
         &self.name
@@ -218,7 +218,7 @@ impl AgentAdapter for ClaudeCodeAdapter {
             .ok_or_else(|| anyhow::anyhow!("Client not connected"))?;
 
         // Convert string content to ACP Content
-        let acp_content = vec![agent_client_protocol::Content::Text(content.clone())];
+        let acp_content = vec![agent_client_protocol::ContentBlock::from(content.clone())];
 
         client
             .send_prompt(session_id, acp_content)
@@ -229,7 +229,7 @@ impl AgentAdapter for ClaudeCodeAdapter {
         if let Some(session) = self.sessions.get_mut(session_id) {
             let user_message = Message::user_prompt(
                 session_id.clone(),
-                vec![agent_client_protocol::Content::Text(content)],
+                vec![agent_client_protocol::ContentBlock::from(content)],
             );
             session.add_message(user_message);
         }

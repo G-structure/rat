@@ -53,7 +53,17 @@ impl AgentSelector {
         let items: Vec<ListItem> = self
             .agents
             .iter()
-            .map(|agent| self.format_agent_item(agent))
+            .map(|agent| {
+                let status_text = match agent.status {
+                    AgentStatus::Connected => "🟢 Connected".to_string(),
+                    AgentStatus::Connecting => "🟡 Connecting...".to_string(),
+                    AgentStatus::Disconnected => "🔴 Disconnected".to_string(),
+                    AgentStatus::Error(ref e) => format!("❌ Error: {}", e),
+                };
+
+                let text = format!("{} - {}", agent.name, status_text);
+                ListItem::new(text).style(Style::default().white())
+            })
             .collect();
 
         let list = List::new(items)

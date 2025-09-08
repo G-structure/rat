@@ -189,6 +189,8 @@ impl TerminalView {
     }
 
     pub async fn tick(&mut self) -> Result<()> {
+        let mut lines_to_add = Vec::new();
+
         // Collect output from active processes
         for process in &mut self.processes {
             if let Some(ref mut rx) = process.output_rx {
@@ -198,7 +200,7 @@ impl TerminalView {
                     } else {
                         TerminalLineLevel::Output
                     };
-                    self.add_line(line, level);
+                    lines_to_add.push((line, level));
                 }
             }
 
@@ -215,27 +217,32 @@ impl TerminalView {
 
                         let status_msg = match &process.status {
                             ProcessStatus::Completed(_) => "Process completed successfully",
-                            ProcessStatus::Failed(reason) => &format!("Process failed: {}", reason),
+                            ProcessStatus::Failed(reason) => reason,
                             _ => "Unknown status",
                         };
 
-                        self.add_line(
+                        lines_to_add.push((
                             format!("Process '{}' finished: {}", process.command, status_msg),
                             TerminalLineLevel::System,
-                        );
+                        ));
                     }
                     Ok(None) => {
                         // Process still running
                     }
                     Err(e) => {
                         process.status = ProcessStatus::Failed(e.to_string());
-                        self.add_line(
+                        lines_to_add.push((
                             format!("Process '{}' error: {}", process.command, e),
                             TerminalLineLevel::System,
-                        );
+                        ));
                     }
                 }
             }
+        }
+
+        // Add all collected lines
+        for (content, level) in lines_to_add {
+            self.add_line(content, level);
         }
 
         // Clean up completed processes
@@ -304,21 +311,28 @@ impl TerminalView {
     }
 
     pub async fn kill_all_processes(&mut self) -> Result<()> {
+        let mut messages = Vec::new();
         for process in &mut self.processes {
             if process.status == ProcessStatus::Running {
                 if let Err(e) = process.child.kill().await {
-                    self.add_line(
+                    messages.push((
                         format!("Failed to kill process '{}': {}", process.command, e),
                         TerminalLineLevel::Error,
-                    );
+                    ));
                 } else {
-                    self.add_line(
+                    messages.push((
                         format!("Killed process '{}'", process.command),
                         TerminalLineLevel::System,
-                    );
+                    ));
                 }
             }
         }
+
+        // Add all messages after the loop
+        for (message, level) in messages {
+            self.add_line(message, level);
+        }
+
         self.processes.clear();
         Ok(())
     }

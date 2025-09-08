@@ -137,7 +137,7 @@ impl ProjectConfig {
 
                 return Some(ProjectSettings {
                     name,
-                    root_path: dir,
+                    root_path: dir.clone(),
                     preferred_agent: None,
                     context_files: self.find_context_files(&dir),
                     environment_vars: HashMap::new(),

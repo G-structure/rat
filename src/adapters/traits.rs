@@ -5,8 +5,8 @@ use tokio::sync::mpsc;
 use crate::acp::{Message, Session, SessionId};
 use crate::app::AppMessage;
 
-#[async_trait]
-pub trait AgentAdapter: Send + Sync {
+#[async_trait(?Send)]
+pub trait AgentAdapter {
     /// Get the name of this agent
     fn name(&self) -> &str;
 
