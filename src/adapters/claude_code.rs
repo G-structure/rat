@@ -9,7 +9,10 @@ use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tokio::time::{timeout, Duration};
 
-use super::traits::{AgentAdapter, AgentCapabilities, AgentHealth};
+use super::{
+    agent_installer::{AgentCommand, AgentInstaller},
+    traits::{AgentAdapter, AgentCapabilities, AgentHealth},
+};
 use crate::acp::Session;
 use crate::acp::{AcpClient, Message, SessionId};
 use crate::app::AppMessage;
@@ -23,16 +26,18 @@ pub struct ClaudeCodeAdapter {
     message_tx: mpsc::UnboundedSender<AppMessage>,
     health: AgentHealth,
     last_health_check: Option<std::time::Instant>,
-    command_path: PathBuf,
+    installer: AgentInstaller,
+    command: Option<AgentCommand>,
 }
 
 impl ClaudeCodeAdapter {
     pub async fn new(
-        command_path: PathBuf,
         config: ClaudeCodeConfig,
         message_tx: mpsc::UnboundedSender<AppMessage>,
     ) -> Result<Self> {
-        let adapter = Self {
+        let installer = AgentInstaller::new().context("Failed to create agent installer")?;
+
+        Ok(Self {
             name: "claude-code".to_string(),
             config,
             client: None,
@@ -40,77 +45,35 @@ impl ClaudeCodeAdapter {
             message_tx,
             health: AgentHealth::Disconnected,
             last_health_check: None,
-            command_path,
-        };
-
-        // Verify command exists
-        adapter.verify_command().await?;
-
-        Ok(adapter)
+            installer,
+            command: None,
+        })
     }
 
-    async fn verify_command(&self) -> Result<()> {
-        if !self.command_path.exists() {
-            if self.config.auto_install {
-                info!("Claude Code command not found, attempting auto-install");
-                self.auto_install().await?;
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Claude Code command not found: {:?}",
-                    self.command_path
-                ));
-            }
+    async fn get_or_install_command(&mut self) -> Result<&AgentCommand> {
+        if self.command.is_none() {
+            info!("Getting or installing Claude Code agent...");
+            let command = self
+                .installer
+                .get_or_install_claude_code()
+                .await
+                .context("Failed to get or install Claude Code")?;
+
+            // Verify the command works
+            self.installer
+                .verify_agent_command(&command)
+                .await
+                .context("Failed to verify Claude Code installation")?;
+
+            self.command = Some(command);
         }
 
-        // Test command execution
-        let output = timeout(
-            Duration::from_secs(10),
-            Command::new(&self.command_path).arg("--version").output(),
-        )
-        .await
-        .context("Command verification timeout")?
-        .context("Failed to execute command")?;
-
-        if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "Command verification failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-
-        info!("Claude Code command verified: {:?}", self.command_path);
-        Ok(())
-    }
-
-    async fn auto_install(&self) -> Result<()> {
-        info!("Auto-installing claude-code-acp via npm");
-
-        let output = Command::new("npm")
-            .args(&["install", "-g", "@zed-industries/claude-code-acp"])
-            .output()
-            .await
-            .context("Failed to run npm install")?;
-
-        if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "Failed to install claude-code-acp: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-
-        info!("Successfully installed claude-code-acp");
-        Ok(())
+        Ok(self.command.as_ref().unwrap())
     }
 
     async fn check_environment(&self) -> Result<()> {
-        // Check for required environment variables
-        if std::env::var(&self.config.api_key_env).is_err() {
-            return Err(anyhow::anyhow!(
-                "Environment variable '{}' not set",
-                self.config.api_key_env
-            ));
-        }
-
+        // Claude Code handles authentication internally through login flow
+        // No environment variables required
         Ok(())
     }
 
@@ -168,12 +131,15 @@ impl AgentAdapter for ClaudeCodeAdapter {
             .await
             .context("Environment check failed")?;
 
+        // Store values we need to avoid borrowing conflicts
+        let name = self.name.clone();
+        let message_tx = self.message_tx.clone();
+
+        // Get or install the command
+        let command = self.get_or_install_command().await?;
+
         // Create and start ACP client
-        let mut client = AcpClient::new(
-            &self.name,
-            self.command_path.to_str().unwrap(),
-            self.message_tx.clone(),
-        );
+        let mut client = AcpClient::new(&name, command.path.to_str().unwrap(), message_tx);
 
         client.start().await.context("Failed to start ACP client")?;
 

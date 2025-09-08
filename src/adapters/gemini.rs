@@ -9,7 +9,10 @@ use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tokio::time::{timeout, Duration};
 
-use super::traits::{AgentAdapter, AgentCapabilities, AgentHealth};
+use super::{
+    agent_installer::{AgentCommand, AgentInstaller},
+    traits::{AgentAdapter, AgentCapabilities, AgentHealth},
+};
 use crate::acp::Session;
 use crate::acp::{AcpClient, Message, SessionId};
 use crate::app::AppMessage;
@@ -23,16 +26,18 @@ pub struct GeminiAdapter {
     message_tx: mpsc::UnboundedSender<AppMessage>,
     health: AgentHealth,
     last_health_check: Option<std::time::Instant>,
-    command_path: PathBuf,
+    installer: AgentInstaller,
+    command: Option<AgentCommand>,
 }
 
 impl GeminiAdapter {
     pub async fn new(
-        command_path: PathBuf,
         config: GeminiConfig,
         message_tx: mpsc::UnboundedSender<AppMessage>,
     ) -> Result<Self> {
-        let adapter = Self {
+        let installer = AgentInstaller::new().context("Failed to create agent installer")?;
+
+        Ok(Self {
             name: "gemini".to_string(),
             config,
             client: None,
@@ -40,117 +45,30 @@ impl GeminiAdapter {
             message_tx,
             health: AgentHealth::Disconnected,
             last_health_check: None,
-            command_path,
-        };
-
-        // Verify command exists
-        adapter.verify_command().await?;
-
-        Ok(adapter)
+            installer,
+            command: None,
+        })
     }
 
-    async fn verify_command(&self) -> Result<()> {
-        if !self.command_path.exists() {
-            if self.config.auto_install {
-                info!("Gemini command not found, attempting auto-install");
-                self.auto_install().await?;
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Gemini command not found: {:?}",
-                    self.command_path
-                ));
-            }
+    async fn get_or_install_command(&mut self) -> Result<&AgentCommand> {
+        if self.command.is_none() {
+            info!("Getting or installing Gemini CLI agent...");
+            let command = self
+                .installer
+                .get_or_install_gemini()
+                .await
+                .context("Failed to get or install Gemini CLI")?;
+
+            // Verify the command works
+            self.installer
+                .verify_agent_command(&command)
+                .await
+                .context("Failed to verify Gemini CLI installation")?;
+
+            self.command = Some(command);
         }
 
-        // Test command execution
-        let output = timeout(
-            Duration::from_secs(10),
-            Command::new(&self.command_path).arg("--version").output(),
-        )
-        .await
-        .context("Command verification timeout")?
-        .context("Failed to execute command")?;
-
-        if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "Command verification failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-
-        info!("Gemini command verified: {:?}", self.command_path);
-        Ok(())
-    }
-
-    async fn auto_install(&self) -> Result<()> {
-        info!("Auto-installing Gemini CLI");
-
-        // Try different installation methods based on platform
-        #[cfg(target_os = "macos")]
-        let install_result = self.install_macos().await;
-
-        #[cfg(target_os = "linux")]
-        let install_result = self.install_linux().await;
-
-        #[cfg(target_os = "windows")]
-        let install_result = self.install_windows().await;
-
-        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-        let install_result = Err(anyhow::anyhow!(
-            "Auto-install not supported on this platform"
-        ));
-
-        install_result.context("Failed to auto-install Gemini CLI")?;
-
-        info!("Successfully installed Gemini CLI");
-        Ok(())
-    }
-
-    #[cfg(target_os = "macos")]
-    async fn install_macos(&self) -> Result<()> {
-        // Try brew first
-        let brew_output = Command::new("brew")
-            .args(&["install", "gemini-cli"])
-            .output()
-            .await;
-
-        if let Ok(output) = brew_output {
-            if output.status.success() {
-                return Ok(());
-            }
-        }
-
-        // Fall back to npm
-        self.install_via_npm().await
-    }
-
-    #[cfg(target_os = "linux")]
-    async fn install_linux(&self) -> Result<()> {
-        // Try npm installation
-        self.install_via_npm().await
-    }
-
-    #[cfg(target_os = "windows")]
-    async fn install_windows(&self) -> Result<()> {
-        // Try npm installation
-        self.install_via_npm().await
-    }
-
-    async fn install_via_npm(&self) -> Result<()> {
-        let output = Command::new("npm")
-            .args(&["install", "-g", "gemini-cli"])
-            .output()
-            .await
-            .context("Failed to run npm install")?;
-
-        if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "Failed to install gemini-cli: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-
-        Ok(())
+        Ok(self.command.as_ref().unwrap())
     }
 
     async fn check_environment(&self) -> Result<()> {
@@ -216,12 +134,15 @@ impl AgentAdapter for GeminiAdapter {
             .await
             .context("Environment check failed")?;
 
+        // Store values we need to avoid borrowing conflicts
+        let name = self.name.clone();
+        let message_tx = self.message_tx.clone();
+
+        // Get or install the command
+        let command = self.get_or_install_command().await?;
+
         // Create and start ACP client
-        let mut client = AcpClient::new(
-            &self.name,
-            self.command_path.to_str().unwrap(),
-            self.message_tx.clone(),
-        );
+        let mut client = AcpClient::new(&name, command.path.to_str().unwrap(), message_tx);
 
         client.start().await.context("Failed to start ACP client")?;
 

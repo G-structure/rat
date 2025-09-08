@@ -41,8 +41,12 @@ impl AgentManager {
                 }
                 Err(e) => {
                     warn!("Failed to initialize Claude Code adapter: {}", e);
+                    // Don't treat this as a fatal error - we'll try to install when connecting
                     let _ = self.message_tx.send(AppMessage::Error {
-                        error: format!("Failed to initialize Claude Code: {}", e),
+                        error: format!(
+                            "Claude Code adapter available but not immediately ready: {}",
+                            e
+                        ),
                     });
                 }
             }
@@ -68,35 +72,16 @@ impl AgentManager {
     }
 
     async fn create_claude_code_adapter(&self) -> Result<Box<dyn AgentAdapter>> {
-        let command_path = self
-            .config
-            .claude_code
-            .get_command_path()
-            .ok_or_else(|| anyhow::anyhow!("Claude Code command not found"))?;
-
-        let adapter = ClaudeCodeAdapter::new(
-            command_path,
-            self.config.claude_code.clone(),
-            self.message_tx.clone(),
-        )
-        .await?;
+        let adapter =
+            ClaudeCodeAdapter::new(self.config.claude_code.clone(), self.message_tx.clone())
+                .await?;
 
         Ok(Box::new(adapter))
     }
 
     async fn create_gemini_adapter(&self) -> Result<Box<dyn AgentAdapter>> {
-        let command_path = self
-            .config
-            .gemini
-            .get_command_path()
-            .ok_or_else(|| anyhow::anyhow!("Gemini command not found"))?;
-
-        let adapter = GeminiAdapter::new(
-            command_path,
-            self.config.gemini.clone(),
-            self.message_tx.clone(),
-        )
-        .await?;
+        let adapter =
+            GeminiAdapter::new(self.config.gemini.clone(), self.message_tx.clone()).await?;
 
         Ok(Box::new(adapter))
     }
