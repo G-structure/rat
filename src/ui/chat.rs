@@ -2,7 +2,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 use std::collections::VecDeque;
 
@@ -14,7 +14,12 @@ pub struct ChatView {
     max_messages: usize,
     input_buffer: String,
     input_mode: bool,
+    // Scroll offset measured in visual lines from the bottom (0 = stick to bottom)
     scroll_offset: usize,
+    // Cached layout info from last render to make scrolling feel correct
+    last_total_lines: usize,
+    last_visible_lines: usize,
+    last_inner_width: usize,
 }
 
 impl ChatView {
@@ -25,6 +30,9 @@ impl ChatView {
             input_buffer: String::new(),
             input_mode: false,
             scroll_offset: 0,
+            last_total_lines: 0,
+            last_visible_lines: 0,
+            last_inner_width: 0,
         }
     }
 
@@ -46,48 +54,47 @@ impl ChatView {
         Ok(())
     }
 
-    fn render_messages(&self, frame: &mut Frame, area: Rect) {
-        let available_height = area.height.saturating_sub(2) as usize; // Account for borders
-        let total_messages = self.messages.len();
+    fn render_messages(&mut self, frame: &mut Frame, area: Rect) {
+        // Area available for content inside the border
+        let inner_width = area.width.saturating_sub(2) as usize;
+        let visible_lines = area.height.saturating_sub(2) as usize;
 
-        // Calculate which messages to show
-        let messages: Vec<ListItem> = if total_messages <= available_height {
-            // Show all messages if they fit
-            self.messages
-                .iter()
-                .map(|msg| self.format_message(msg))
-                .collect()
+        // Build wrapped, styled lines for all messages
+        let mut lines: Vec<Line> = Vec::new();
+        for msg in &self.messages {
+            let msg_lines = self.format_message_lines(msg, inner_width);
+            lines.extend(msg_lines);
+        }
+
+        let total_lines = lines.len();
+
+        // Persist last layout for scroll logic elsewhere
+        self.last_total_lines = total_lines;
+        self.last_visible_lines = visible_lines;
+        self.last_inner_width = inner_width;
+
+        // Determine scroll origin from bottom
+        let base_from_top = total_lines.saturating_sub(visible_lines);
+        let start_from_top = if self.scroll_offset == 0 {
+            base_from_top
         } else {
-            // Show the most recent messages that fit, respecting scroll offset
-            let start_idx = if self.scroll_offset == 0 {
-                // Auto-scroll mode: show latest messages
-                total_messages.saturating_sub(available_height)
-            } else {
-                // Manual scroll mode: respect scroll offset
-                self.scroll_offset
-                    .min(total_messages.saturating_sub(available_height))
-            };
-
-            self.messages
-                .iter()
-                .skip(start_idx)
-                .take(available_height)
-                .map(|msg| self.format_message(msg))
-                .collect()
+            base_from_top.saturating_sub(self.scroll_offset)
         };
 
-        let title = if total_messages <= available_height {
-            format!("Conversation ({} messages)", total_messages)
+        let title = if total_lines <= visible_lines {
+            format!("Conversation ({} messages)", self.messages.len())
         } else if self.scroll_offset == 0 {
-            format!("Conversation ({} messages) - Latest", total_messages)
+            format!("Conversation ({} messages) - Latest", self.messages.len())
         } else {
-            format!("Conversation ({} messages) - ↑↓ to scroll", total_messages)
+            format!("Conversation ({} messages) - ↑↓ to scroll", self.messages.len())
         };
 
-        let messages_list =
-            List::new(messages).block(Block::default().title(title).borders(Borders::ALL));
+        let para = Paragraph::new(lines)
+            .block(Block::default().title(title).borders(Borders::ALL))
+            .wrap(Wrap { trim: false })
+            .scroll((start_from_top as u16, 0));
 
-        frame.render_widget(messages_list, area);
+        frame.render_widget(para, area);
     }
 
     fn render_input(&self, frame: &mut Frame, area: Rect) {
@@ -121,63 +128,63 @@ impl ChatView {
         }
     }
 
-    fn format_message(&self, message: &Message) -> ListItem {
+    fn format_message_lines(&self, message: &Message, max_width: usize) -> Vec<Line<'static>> {
         let timestamp = message.timestamp.format("%H:%M:%S");
 
-        match &message.content {
-            MessageContent::UserPrompt { .. } => ListItem::new(format!(
-                "[{}] You: {}",
-                timestamp,
-                self.extract_text_content(message)
-            ))
-            .style(Style::default().cyan()),
-            MessageContent::AgentResponse { content } => ListItem::new(format!(
-                "[{}] Agent: {}",
-                timestamp,
-                self.content_to_string(content)
-            ))
-            .style(Style::default().green()),
-            MessageContent::AgentMessageChunk { content } => ListItem::new(format!(
-                "[{}] Agent: {}",
-                timestamp,
-                self.content_to_string(content)
-            ))
-            .style(Style::default().green()),
-            MessageContent::EditProposed { edit } => {
-                ListItem::new(format!("[{}] Edit proposed: {}", timestamp, edit.file_path))
-                    .style(Style::default().yellow())
-            }
-            MessageContent::EditAccepted { edit_id } => {
-                ListItem::new(format!("[{}] Edit accepted: {}", timestamp, edit_id))
-                    .style(Style::default().green())
-            }
-            MessageContent::EditRejected { edit_id } => {
-                ListItem::new(format!("[{}] Edit rejected: {}", timestamp, edit_id))
-                    .style(Style::default().red())
-            }
-            MessageContent::ToolCall { tool_call } => ListItem::new(format!(
-                "[{}] Tool call: {}",
-                timestamp, tool_call.tool_name
-            ))
-            .style(Style::default().blue()),
-            MessageContent::ToolResult {
-                tool_call_id,
-                result,
-            } => ListItem::new(format!(
-                "[{}] Tool result: {} chars",
-                timestamp,
-                result.len()
-            ))
-            .style(Style::default().blue()),
-            MessageContent::SessionStatus { status } => {
-                ListItem::new(format!("[{}] Status: {}", timestamp, status))
-                    .style(Style::default().gray())
-            }
-            MessageContent::Error { error } => {
-                ListItem::new(format!("[{}] Error: {}", timestamp, error))
-                    .style(Style::default().red())
-            }
-        }
+        let (prefix, body, style) = match &message.content {
+            MessageContent::UserPrompt { .. } => (
+                format!("[{}] You: ", timestamp),
+                self.extract_text_content(message),
+                Style::default().cyan(),
+            ),
+            MessageContent::AgentResponse { content } => (
+                format!("[{}] Agent: ", timestamp),
+                self.content_to_string(content),
+                Style::default().green(),
+            ),
+            MessageContent::AgentMessageChunk { content } => (
+                format!("[{}] Agent: ", timestamp),
+                self.content_to_string(content),
+                Style::default().green(),
+            ),
+            MessageContent::EditProposed { edit } => (
+                format!("[{}] Edit proposed: ", timestamp),
+                edit.file_path.clone(),
+                Style::default().yellow(),
+            ),
+            MessageContent::EditAccepted { edit_id } => (
+                format!("[{}] Edit accepted: ", timestamp),
+                edit_id.clone(),
+                Style::default().green(),
+            ),
+            MessageContent::EditRejected { edit_id } => (
+                format!("[{}] Edit rejected: ", timestamp),
+                edit_id.clone(),
+                Style::default().red(),
+            ),
+            MessageContent::ToolCall { tool_call } => (
+                format!("[{}] Tool call: ", timestamp),
+                tool_call.tool_name.clone(),
+                Style::default().blue(),
+            ),
+            MessageContent::ToolResult { result, .. } => (
+                format!("[{}] Tool result: ", timestamp),
+                format!("{} chars", result.len()),
+                Style::default().blue(),
+            ),
+            MessageContent::SessionStatus { status } => (
+                format!("[{}] Status: ", timestamp),
+                status.clone(),
+                Style::default().gray(),
+            ),
+            MessageContent::Error { error } => (
+                format!("[{}] Error: ", timestamp),
+                error.clone(),
+                Style::default().red(),
+            ),
+        };
+
+        self.wrap_styled(format!("{}{}", prefix, body), style, max_width)
     }
 
     fn extract_text_content(&self, message: &Message) -> String {
@@ -232,16 +239,18 @@ impl ChatView {
             }
             KeyCode::Up => {
                 if !self.input_mode {
-                    // Scroll up (show older messages)
-                    let max_scroll = self.messages.len().saturating_sub(1);
-                    if self.scroll_offset < max_scroll {
+                    // Scroll up by one visual line (older content)
+                    let max_from_bottom = self
+                        .last_total_lines
+                        .saturating_sub(self.last_visible_lines);
+                    if self.scroll_offset < max_from_bottom {
                         self.scroll_offset += 1;
                     }
                 }
             }
             KeyCode::Down => {
                 if !self.input_mode {
-                    // Scroll down (show newer messages)
+                    // Scroll down by one visual line (toward latest)
                     if self.scroll_offset > 0 {
                         self.scroll_offset -= 1;
                     }
@@ -253,6 +262,14 @@ impl ChatView {
     }
 
     pub async fn add_message(&mut self, message: Message) -> Result<()> {
+        // If the user has scrolled up, keep their viewport anchored by
+        // increasing the offset by the number of visual lines added.
+        let mut added_lines = 1usize;
+        if self.last_inner_width > 0 {
+            let tmp_lines = self.format_message_lines(&message, self.last_inner_width);
+            added_lines = tmp_lines.len().max(1);
+        }
+
         self.messages.push_back(message);
 
         // Keep only the max number of messages
@@ -260,8 +277,12 @@ impl ChatView {
             self.messages.pop_front();
         }
 
-        // Auto-scroll to bottom (set to 0 for auto-scroll mode)
-        self.scroll_offset = 0;
+        // Stick to bottom only if already at bottom; otherwise preserve position
+        if self.scroll_offset > 0 {
+            self.scroll_offset = self.scroll_offset.saturating_add(added_lines);
+        } else {
+            self.scroll_offset = 0;
+        }
 
         Ok(())
     }
@@ -288,5 +309,70 @@ impl ChatView {
         if !mode {
             self.input_buffer.clear();
         }
+    }
+}
+
+impl ChatView {
+    fn wrap_styled(&self, text: String, style: Style, max_width: usize) -> Vec<Line<'static>> {
+        if max_width == 0 {
+            return vec![Line::from(Span::styled(text, style))];
+        }
+
+        // Simple word-wrapping to avoid splitting in the middle of words
+        let mut lines: Vec<Line> = Vec::new();
+        let mut current = String::new();
+
+        for word in text.split_whitespace() {
+            // +1 for the space if current is not empty
+            let prospective_len = current.len() + if current.is_empty() { 0 } else { 1 } + word.len();
+            if prospective_len <= max_width {
+                if !current.is_empty() {
+                    current.push(' ');
+                }
+                current.push_str(word);
+            } else {
+                if current.is_empty() {
+                    // Very long single word; hard wrap
+                    let mut start = 0usize;
+                    let bytes = word.as_bytes();
+                    while start < bytes.len() {
+                        let end = (start + max_width).min(bytes.len());
+                        let chunk = &word[start..end];
+                        lines.push(Line::from(Span::styled(chunk.to_string(), style)));
+                        start = end;
+                    }
+                } else {
+                    lines.push(Line::from(Span::styled(current.clone(), style)));
+                    current.clear();
+                    // Put the word on a new line or split if still too long
+                    if word.len() <= max_width {
+                        current.push_str(word);
+                    } else {
+                        let mut start = 0usize;
+                        let bytes = word.as_bytes();
+                        while start < bytes.len() {
+                            let end = (start + max_width).min(bytes.len());
+                            let chunk = &word[start..end];
+                            if chunk.len() == max_width {
+                                lines.push(Line::from(Span::styled(chunk.to_string(), style)));
+                            } else {
+                                current.push_str(chunk);
+                            }
+                            start = end;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !current.is_empty() {
+            lines.push(Line::from(Span::styled(current, style)));
+        }
+
+        if lines.is_empty() {
+            lines.push(Line::from(Span::styled(String::new(), style)));
+        }
+
+        lines
     }
 }

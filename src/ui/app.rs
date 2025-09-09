@@ -253,7 +253,14 @@ impl TuiManager {
             return Ok(());
         }
 
-        // Tab navigation
+        // Check if chat input is active before processing global keys
+        let chat_input_active = if let Some(active_tab) = self.tabs.get(self.active_tab) {
+            active_tab.chat_view.is_input_mode()
+        } else {
+            false
+        };
+
+        // Tab navigation (always allowed)
         match key.code {
             KeyCode::Tab => {
                 self.next_tab();
@@ -263,17 +270,28 @@ impl TuiManager {
                 self.prev_tab();
                 return Ok(());
             }
-            KeyCode::Char('n') => {
-                // Create new session with default agent
-                self.create_new_session().await?;
-                return Ok(());
-            }
-            KeyCode::Char('a') => {
-                // Show agent selector (toggle visibility)
-                self.agent_selector.toggle_visibility();
-                return Ok(());
-            }
             _ => {}
+        }
+
+        // Only process these global keys if chat input is NOT active
+        if !chat_input_active {
+            match key.code {
+                KeyCode::Char('n') => {
+                    // Create new session with default agent
+                    self.create_new_session().await?;
+                    return Ok(());
+                }
+                KeyCode::Char('a') => {
+                    // Show agent selector (toggle visibility)
+                    self.agent_selector.toggle_visibility();
+                    return Ok(());
+                }
+                KeyCode::Char('q') => {
+                    // TODO: Implement quit functionality
+                    return Ok(());
+                }
+                _ => {}
+            }
         }
 
         // Pass to active tab
