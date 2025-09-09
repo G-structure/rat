@@ -85,6 +85,33 @@ async fn acp_thread_main(
         }
     });
 
+    // Initialize the ACP connection with proper protocol version
+    info!("Initializing ACP connection with protocol version");
+    match connection
+        .initialize(acp::InitializeRequest {
+            protocol_version: acp::V1,
+            client_capabilities: acp::ClientCapabilities {
+                fs: acp::FileSystemCapability {
+                    read_text_file: true,
+                    write_text_file: true,
+                },
+                terminal: false,
+            },
+        })
+        .await
+    {
+        Ok(response) => {
+            info!(
+                "ACP initialization successful, protocol version: {:?}",
+                response.protocol_version
+            );
+        }
+        Err(e) => {
+            error!("ACP initialization failed: {}", e);
+            return;
+        }
+    }
+
     let mut sessions: HashMap<String, acp::SessionId> = HashMap::new();
 
     // Process commands from main thread

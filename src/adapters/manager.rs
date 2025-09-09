@@ -155,21 +155,38 @@ impl AgentManager {
             .ok_or_else(|| anyhow::anyhow!("Agent '{}' not found", agent_name))?;
 
         if !agent.is_connected() {
-            return Err(anyhow::anyhow!("Agent '{}' is not connected", agent_name));
+            info!("Agent '{}' not connected; attempting to connect...", agent_name);
+            if let Err(e) = agent.start().await {
+                let msg = format!("Failed to start agent '{}': {}", agent_name, e);
+                let _ = self.message_tx.send(AppMessage::Error { error: msg.clone() });
+                return Err(anyhow::anyhow!(msg));
+            }
+            let _ = self.message_tx.send(AppMessage::AgentConnected {
+                agent_name: agent_name.to_string(),
+            });
         }
 
-        let session_id = agent
-            .create_session()
-            .await
-            .with_context(|| format!("Failed to create session for agent '{}'", agent_name))?;
+        match agent.create_session().await {
+            Ok(session_id) => {
+                let _ = self.message_tx.send(AppMessage::SessionCreated {
+                    agent_name: agent_name.to_string(),
+                    session_id: session_id.clone(),
+                });
 
-        let _ = self.message_tx.send(AppMessage::SessionCreated {
-            agent_name: agent_name.to_string(),
-            session_id: session_id.clone(),
-        });
-
-        info!("Created session {} for agent {}", session_id.0, agent_name);
-        Ok(session_id)
+                info!("Created session {} for agent {}", session_id.0, agent_name);
+                Ok(session_id)
+            }
+            Err(e) => {
+                let error_msg = format!(
+                    "Failed to create session for agent '{}': {}",
+                    agent_name, e
+                );
+                let _ = self.message_tx.send(AppMessage::Error {
+                    error: error_msg.clone(),
+                });
+                Err(anyhow::anyhow!(error_msg))
+            }
+        }
     }
 
     pub async fn send_message(
