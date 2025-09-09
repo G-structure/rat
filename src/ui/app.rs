@@ -11,7 +11,9 @@ use std::time::Instant;
 
 use tachyonfx::{fx, Duration as FxDuration, EffectManager as FxManager, Interpolation};
 use crate::effects::cyberpunk::{CyberTheme, neon_pulse_border, subtle_hsl_drift, sweep_in_attention, glitch_burst};
+use crate::effects::startup::matrix_rain_morph;
 use tachyonfx::RefRect;
+use tachyonfx::{ref_count, BufferRenderer};
 
 use crate::acp::{Message, MessageContent, SessionId};
 use crate::app::UiToApp;
@@ -31,6 +33,9 @@ pub struct TuiManager {
     fx: FxManager<&'static str>,
     last_fx_tick: Instant,
     ambient_fx_initialized: bool,
+    // Startup animation state
+    startup_effect: Option<tachyonfx::Effect>,
+    startup_running: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +63,8 @@ impl TuiManager {
             fx: FxManager::default(),
             last_fx_tick: Instant::now(),
             ambient_fx_initialized: false,
+            startup_effect: None,
+            startup_running: true,
         })
     }
 
@@ -105,8 +112,12 @@ impl TuiManager {
             self.render_help_popup(frame);
         }
 
-        // Apply global FX post-processing
-        self.apply_fx(frame);
+        // Apply startup animation if active; otherwise ambient fx
+        if self.startup_running {
+            self.apply_startup_fx(frame);
+        } else {
+            self.apply_fx(frame);
+        }
 
         Ok(())
     }
@@ -525,5 +536,37 @@ impl TuiManager {
         let elapsed_fx: FxDuration = elapsed.into();
         let area = frame.area();
         self.fx.process_effects(elapsed_fx, frame.buffer_mut(), area);
+    }
+
+    fn apply_startup_fx(&mut self, frame: &mut Frame) {
+        // Initialize startup effect once with snapshot of current UI into a buffer
+        if self.startup_effect.is_none() {
+            let area = frame.area();
+            let target = ref_count(Buffer::empty(area));
+            // Snapshot current frame into target
+            {
+                let src = frame.buffer_mut().clone();
+                let mut dst = target.borrow_mut();
+                src.render_buffer(ratatui::layout::Offset::default(), &mut dst);
+            }
+            // Effect morphs rain into target UI
+            self.startup_effect = Some(matrix_rain_morph(target));
+            self.last_fx_tick = Instant::now();
+        }
+
+        if let Some(effect) = &mut self.startup_effect {
+            let now = Instant::now();
+            let elapsed = now.saturating_duration_since(self.last_fx_tick);
+            self.last_fx_tick = now;
+            let area = frame.area();
+            let mut dur: FxDuration = elapsed.into();
+            effect.process(dur, frame.buffer_mut(), area);
+            if effect.done() {
+                self.startup_effect = None;
+                self.startup_running = false;
+                // Initialize ambient fx after startup completes
+                self.ambient_fx_initialized = false; // ensure init in next tick
+            }
+        }
     }
 }

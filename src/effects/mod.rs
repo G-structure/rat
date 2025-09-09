@@ -6,6 +6,7 @@ pub mod text;
 pub mod themes;
 pub mod transitions;
 pub mod cyberpunk;
+pub mod startup;
 
 // Lightweight toggle for enabling effects globally (future use)
 pub struct EffectsConfig {
