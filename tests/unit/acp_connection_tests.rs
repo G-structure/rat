@@ -18,8 +18,9 @@ async fn test_acp_client_creation() {
         "claude-code",
         "/usr/bin/echo", // Mock command that exists
         vec!["test".to_string()],
-        HashMap::new(),
+        Some(HashMap::new()),
         message_tx,
+        None,
     );
 
     assert_eq!(client.name(), "claude-code");

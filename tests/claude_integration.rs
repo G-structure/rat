@@ -117,6 +117,7 @@ async fn acp_client_start_and_create_session() -> Result<()> {
         cmd.args.clone(),
         cmd.env.clone(),
         tx,
+        None,
     );
 
     // Start process

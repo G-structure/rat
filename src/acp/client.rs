@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -13,6 +13,7 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use super::{Message, Session, SessionId};
 use crate::app::AppMessage;
 use agent_client_protocol::{self as acp, Agent};
+use which::which;
 
 // Commands that can be sent to the ACP thread
 #[derive(Debug)]
@@ -56,6 +57,119 @@ impl RealAcpConnection {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct LoginCommand {
+    pub path: PathBuf,
+    pub args: Vec<String>,
+}
+
+// Best-effort interactive login runner.
+async fn run_login_if_needed(login_cmd: &LoginCommand) -> Result<()> {
+    let use_script = which("script").is_ok();
+    let mut cmd = if use_script {
+        let mut c = Command::new("script");
+        c.arg("-q").arg("/dev/null").arg(&login_cmd.path);
+        for a in &login_cmd.args {
+            c.arg(a);
+        }
+        c
+    } else {
+        let mut c = Command::new(&login_cmd.path);
+        c.args(&login_cmd.args);
+        c
+    };
+
+    let mut child = cmd
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("failed to spawn login command")?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("no stdout from login process"))?;
+    let stderr = child.stderr.take();
+    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let tx_stdout = tx.clone();
+    tokio::task::spawn_local(async move {
+        let mut rdr = BufReader::new(stdout);
+        let mut buf = String::new();
+        loop {
+            buf.clear();
+            match rdr.read_line(&mut buf).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    let _ = tx_stdout.send(buf.clone());
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    if let Some(stderr) = stderr {
+        let tx2 = tx.clone();
+        tokio::task::spawn_local(async move {
+            let mut rdr = BufReader::new(stderr);
+            let mut buf = String::new();
+            loop {
+                buf.clear();
+                match rdr.read_line(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let _ = tx2.send(buf.clone());
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
+    let success_markers = [
+        "Login successful",
+        "Already logged in",
+        "You are logged in",
+        "Logged in as",
+        "Successfully logged in",
+    ];
+
+    let start = std::time::Instant::now();
+    let max = tokio::time::Duration::from_secs(180);
+    loop {
+        if let Some(status) = child.try_wait().context("login try_wait failed")? {
+            if status.success() {
+                info!("Login process exited successfully");
+                break;
+            } else {
+                return Err(anyhow!("login process failed: {}", status));
+            }
+        }
+
+        match tokio::time::timeout(tokio::time::Duration::from_millis(1000), rx.recv()).await {
+            Ok(Some(line)) => {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    info!("login: {}", trimmed);
+                    if success_markers.iter().any(|m| trimmed.contains(m)) {
+                        info!("Detected successful login marker");
+                        break;
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(_) => {
+                if start.elapsed() > max {
+                    let _ = child.kill().await;
+                    return Err(anyhow!("login timeout"));
+                }
+            }
+        }
+    }
+
+    let _ = child.kill().await;
+    Ok(())
+}
+
 // Main function for the ACP thread that runs in a single-threaded runtime with LocalSet
 async fn acp_thread_main(
     agent_name: String,
@@ -63,6 +177,8 @@ async fn acp_thread_main(
     stdin: tokio::process::ChildStdin,
     stdout: tokio::process::ChildStdout,
     mut command_rx: mpsc::UnboundedReceiver<AcpCommand>,
+    login_cmd: Option<LoginCommand>,
+    app_tx: mpsc::UnboundedSender<crate::app::AppMessage>,
 ) {
     info!("ACP thread main starting for agent: {}", agent_name);
 
@@ -105,6 +221,20 @@ async fn acp_thread_main(
                 "ACP initialization successful, protocol version: {:?}",
                 response.protocol_version
             );
+            if !response.auth_methods.is_empty() {
+                let list: Vec<String> = response
+                    .auth_methods
+                    .iter()
+                    .map(|m| m.id.0.to_string())
+                    .collect();
+                info!("Agent advertised auth methods: {:?}", list);
+
+                // Do NOT call ACP authenticate here. For agents like claude-code-acp,
+                // the advertised method (e.g., "claude-login") is not handled by the
+                // authenticate RPC and must be satisfied via an external CLI login.
+                // Instead, defer login to when an operation returns AUTH_REQUIRED and
+                // then run the external login flow and retry (see session creation below).
+            }
         }
         Err(e) => {
             error!("ACP initialization failed: {}", e);
@@ -119,13 +249,16 @@ async fn acp_thread_main(
         match command {
             AcpCommand::CreateSession { respond_to } => {
                 info!("Creating new ACP session");
-                match connection
-                    .new_session(acp::NewSessionRequest {
-                        cwd: std::env::current_dir().unwrap_or_else(|_| "/tmp".into()),
-                        mcp_servers: vec![],
-                    })
-                    .await
-                {
+                let request_new_session = || async {
+                    connection
+                        .new_session(acp::NewSessionRequest {
+                            cwd: std::env::current_dir().unwrap_or_else(|_| "/tmp".into()),
+                            mcp_servers: vec![],
+                        })
+                        .await
+                };
+
+                match request_new_session().await {
                     Ok(response) => {
                         let session_id_str = response.session_id.0.to_string();
                         sessions.insert(session_id_str.clone(), response.session_id);
@@ -133,6 +266,40 @@ async fn acp_thread_main(
                         let _ = respond_to.send(Ok(session_id_str));
                     }
                     Err(e) => {
+                        // If authentication required, try to run external login and retry once
+                        let auth_required = e.code == acp::ErrorCode::AUTH_REQUIRED.code
+                            || e.message.contains("Authentication required")
+                            || e.message.contains("Please run /login");
+                        if auth_required {
+                            warn!("Session creation requires authentication; attempting external login...");
+                            if let Some(cmd) = &login_cmd {
+                                let _ = app_tx.send(crate::app::AppMessage::SuspendTui);
+                                if let Err(le) = run_login_if_needed(cmd).await {
+                                    warn!("Login flow failed: {}", le);
+                                } else {
+                                    // Retry once
+                                    match request_new_session().await {
+                                        Ok(response) => {
+                                            let session_id_str = response.session_id.0.to_string();
+                                            sessions.insert(session_id_str.clone(), response.session_id);
+                                            info!("Created ACP session after login: {}", session_id_str);
+                                            let _ = respond_to.send(Ok(session_id_str));
+                                            continue;
+                                        }
+                                        Err(e2) => {
+                                            error!("Failed to create session after login: {}", e2);
+                                            let _ = respond_to
+                                                .send(Err(anyhow::anyhow!("Failed to create session after login: {}", e2)));
+                                            continue;
+                                        }
+                                    }
+                                }
+                                let _ = app_tx.send(crate::app::AppMessage::ResumeTui);
+                            } else {
+                                warn!("No login command configured; cannot authenticate");
+                            }
+                        }
+
                         error!("Failed to create ACP session: {}", e);
                         let _ = respond_to
                             .send(Err(anyhow::anyhow!("Failed to create session: {}", e)));
@@ -302,6 +469,7 @@ pub struct AcpClient {
     process: Option<Child>,
     connection: Option<RealAcpConnection>,
     acp_thread_handle: Option<thread::JoinHandle<()>>,
+    login_command: Option<LoginCommand>,
     sessions: HashMap<SessionId, Session>,
     message_tx: mpsc::UnboundedSender<AppMessage>,
     client: RatClient,
@@ -314,6 +482,7 @@ impl AcpClient {
         command_args: Vec<String>,
         command_env: Option<HashMap<String, String>>,
         message_tx: mpsc::UnboundedSender<AppMessage>,
+        login_command: Option<LoginCommand>,
     ) -> Self {
         let client = RatClient::new(agent_name.to_string(), message_tx.clone());
 
@@ -325,6 +494,7 @@ impl AcpClient {
             process: None,
             connection: None,
             acp_thread_handle: None,
+            login_command,
             sessions: HashMap::new(),
             message_tx,
             client,
@@ -397,6 +567,8 @@ impl AcpClient {
         }
 
         // Spawn ACP thread with single-threaded runtime
+        let login_cmd = self.login_command.clone();
+        let app_tx = self.message_tx.clone();
         let acp_handle = thread::spawn(move || {
             info!("Starting ACP thread with single-threaded runtime");
 
@@ -415,6 +587,8 @@ impl AcpClient {
                         stdin,
                         stdout,
                         command_rx,
+                        login_cmd,
+                        app_tx,
                     ))
                     .await
             });

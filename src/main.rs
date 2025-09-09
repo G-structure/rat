@@ -1,10 +1,12 @@
 use anyhow::Result;
 use clap::Parser;
 use log::{info, warn};
+use std::fs::OpenOptions;
+use std::io::Write;
 
-mod app;
 mod acp;
 mod adapters;
+mod app;
 mod config;
 mod effects;
 mod ui;
@@ -41,11 +43,48 @@ async fn main() -> Result<()> {
         _ => log::LevelFilter::Trace,
     };
 
-    env_logger::Builder::from_default_env()
-        .filter_level(log_level)
+    // Create logs directory if it doesn't exist
+    std::fs::create_dir_all("logs").unwrap_or_else(|e| {
+        eprintln!("Failed to create logs directory: {}", e);
+    });
+
+    // Set up file logging
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("logs/rat.log")
+        .expect("Failed to create log file");
+
+    // Allow environment variable override for log level
+    let mut builder = env_logger::Builder::from_default_env();
+
+    // If RUST_LOG is not set, use the CLI verbose level
+    if std::env::var("RUST_LOG").is_err() {
+        builder.filter_level(log_level);
+    }
+
+    builder
+        .target(env_logger::Target::Pipe(Box::new(log_file)))
+        .format_timestamp_secs()
+        .format_module_path(true)
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{} [{}] [{}:{}] [{}] - {}",
+                buf.timestamp(),
+                record.level(),
+                record.file().unwrap_or("unknown"),
+                record.line().unwrap_or(0),
+                record.module_path().unwrap_or("unknown"),
+                record.args()
+            )
+        })
         .init();
 
-    info!("Starting RAT (Rust Agent Terminal) v{}", env!("CARGO_PKG_VERSION"));
+    info!(
+        "Starting RAT (Rust Agent Terminal) v{}",
+        env!("CARGO_PKG_VERSION")
+    );
 
     // Load configuration
     let config = match cli.config {

@@ -14,6 +14,7 @@ use super::{
     traits::{AgentAdapter, AgentCapabilities, AgentHealth},
 };
 use crate::acp::Session;
+use crate::acp::client::LoginCommand;
 use crate::acp::{AcpClient, Message, SessionId};
 use crate::app::AppMessage;
 use crate::config::agent::ClaudeCodeConfig;
@@ -133,6 +134,12 @@ impl AgentAdapter for ClaudeCodeAdapter {
         let name = self.name.clone();
         let message_tx = self.message_tx.clone();
 
+        // Prepare optional login command derived from installer (do this first to avoid borrow conflicts)
+        let login_cmd = match self.installer.get_claude_login_command().await {
+            Ok(cmd) => Some(LoginCommand { path: cmd.path, args: cmd.args }),
+            Err(_) => None,
+        };
+
         // Get or install the command
         let command = self.get_or_install_command().await?;
 
@@ -143,6 +150,7 @@ impl AgentAdapter for ClaudeCodeAdapter {
             command.args.clone(),
             command.env.clone(),
             message_tx,
+            login_cmd,
         );
 
         client.start().await.context("Failed to start ACP client")?;

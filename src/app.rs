@@ -7,9 +7,9 @@ use ratatui::{
 };
 use std::collections::HashMap;
 use std::io;
+use std::time::Duration as StdDuration;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
-use std::time::Duration as StdDuration;
 
 use crate::acp::{AcpClient, Message, SessionId};
 use crate::adapters::AgentManager;
@@ -65,6 +65,10 @@ pub enum AppMessage {
     Error {
         error: String,
     },
+    /// Temporarily leave TUI (raw mode + alt screen) so external UI can run
+    SuspendTui,
+    /// Return to TUI after external UI has finished
+    ResumeTui,
     Quit,
 }
 
@@ -98,9 +102,9 @@ impl App {
         if !self.config.agents.is_agent_enabled(agent_name) {
             return Err(anyhow::anyhow!("Agent '{}' is not enabled", agent_name));
         }
-        let _ = self
-            .manager_tx
-            .send(ManagerCmd::ConnectAgent { agent_name: agent_name.to_string() });
+        let _ = self.manager_tx.send(ManagerCmd::ConnectAgent {
+            agent_name: agent_name.to_string(),
+        });
 
         Ok(())
     }
@@ -113,7 +117,6 @@ impl App {
     }
 
     async fn run_inner(&mut self) -> Result<()> {
-        
         // Setup terminal
         crossterm::terminal::enable_raw_mode().context("Failed to enable raw mode")?;
         crossterm::execute!(
@@ -162,7 +165,9 @@ impl App {
 
         // Auto-connect configured agents via manager worker (non-blocking)
         for agent_name in self.config.agents.auto_connect.clone() {
-            let _ = self.manager_tx.send(ManagerCmd::ConnectAgent { agent_name });
+            let _ = self
+                .manager_tx
+                .send(ManagerCmd::ConnectAgent { agent_name });
         }
 
         // Manager worker handles its own periodic tick.
@@ -221,9 +226,16 @@ impl App {
                         });
                     }
                     UiToApp::ConnectAgent { agent_name } => {
-                        let _ = self.manager_tx.send(ManagerCmd::ConnectAgent { agent_name });
+                        let _ = self
+                            .manager_tx
+                            .send(ManagerCmd::ConnectAgent { agent_name });
                     }
-                    UiToApp::SendMessage { agent_name, session_id, content, respond_to } => {
+                    UiToApp::SendMessage {
+                        agent_name,
+                        session_id,
+                        content,
+                        respond_to,
+                    } => {
                         let _ = self.manager_tx.send(ManagerCmd::SendMessage {
                             agent_name,
                             session_id,
@@ -251,6 +263,9 @@ impl App {
             if self.should_quit {
                 break;
             }
+
+            // Yield to other tasks to allow the manager worker to process commands
+            tokio::task::yield_now().await;
         }
 
         // Cleanup
@@ -331,6 +346,24 @@ impl App {
                 error!("Application error: {}", error);
                 self.tui_manager.show_error(error);
             }
+            AppMessage::SuspendTui => {
+                // Best-effort: leave raw/alt screen so external UI (login) is visible
+                let _ = crossterm::terminal::disable_raw_mode();
+                let _ = crossterm::execute!(
+                    io::stdout(),
+                    crossterm::event::DisableMouseCapture,
+                    crossterm::terminal::LeaveAlternateScreen
+                );
+            }
+            AppMessage::ResumeTui => {
+                // Best-effort: return to TUI mode
+                let _ = crossterm::terminal::enable_raw_mode();
+                let _ = crossterm::execute!(
+                    io::stdout(),
+                    crossterm::terminal::EnterAlternateScreen,
+                    crossterm::event::EnableMouseCapture
+                );
+            }
             AppMessage::Quit => {
                 self.should_quit = true;
             }
@@ -355,7 +388,9 @@ impl App {
 
         // Disconnect all agents
         let (tx, rx) = oneshot::channel();
-        let _ = self.manager_tx.send(ManagerCmd::DisconnectAll { respond_to: tx });
+        let _ = self
+            .manager_tx
+            .send(ManagerCmd::DisconnectAll { respond_to: tx });
         let _ = rx.await; // ignore errors during shutdown
 
         // Save configuration if auto-save is enabled
@@ -377,13 +412,12 @@ impl App {
 
     pub async fn create_session(&mut self, agent_name: &str) -> Result<SessionId> {
         let (tx, rx) = oneshot::channel();
-        let _ = self
-            .manager_tx
-            .send(ManagerCmd::CreateSession {
-                agent_name: agent_name.to_string(),
-                respond_to: tx,
-            });
-        rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("manager task ended")))
+        let _ = self.manager_tx.send(ManagerCmd::CreateSession {
+            agent_name: agent_name.to_string(),
+            respond_to: tx,
+        });
+        rx.await
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("manager task ended")))
     }
 
     pub async fn send_message(
@@ -399,13 +433,16 @@ impl App {
             content,
             respond_to: tx,
         });
-        rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("manager task ended")))
+        rx.await
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("manager task ended")))
     }
 }
 
 // Commands to the single-threaded manager worker
 pub enum ManagerCmd {
-    ConnectAgent { agent_name: String },
+    ConnectAgent {
+        agent_name: String,
+    },
     CreateSession {
         agent_name: String,
         respond_to: oneshot::Sender<anyhow::Result<SessionId>>,

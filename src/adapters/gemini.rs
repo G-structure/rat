@@ -148,6 +148,7 @@ impl AgentAdapter for GeminiAdapter {
             command.args.clone(),
             command.env.clone(),
             message_tx,
+            None,
         );
 
         client.start().await.context("Failed to start ACP client")?;
