@@ -2,7 +2,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap, BorderType},
 };
 use std::collections::VecDeque;
 
@@ -90,7 +90,13 @@ impl ChatView {
         };
 
         let para = Paragraph::new(lines)
-            .block(Block::default().title(title).borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(title)
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::from_u32(0x18e5ff)))
+                    .border_type(BorderType::Double),
+            )
             .wrap(Wrap { trim: false })
             .scroll((start_from_top as u16, 0));
 
@@ -99,13 +105,13 @@ impl ChatView {
 
     fn render_input(&self, frame: &mut Frame, area: Rect) {
         let input_style = if self.input_mode {
-            Style::default().green()
+            Style::default().fg(Color::from_u32(0xff2e88))
         } else {
-            Style::default()
+            Style::default().fg(Color::DarkGray)
         };
 
         let input_title = if self.input_mode {
-            "Message (Press Enter to send, Esc to cancel)"
+            "Message (Enter: send, Esc: cancel)"
         } else {
             "Press Enter to start typing"
         };
@@ -114,7 +120,8 @@ impl ChatView {
             Block::default()
                 .title(input_title)
                 .borders(Borders::ALL)
-                .border_style(input_style),
+                .border_style(input_style)
+                .border_type(BorderType::Double),
         );
 
         frame.render_widget(input, area);

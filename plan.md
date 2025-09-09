@@ -117,12 +117,16 @@ crossterm = "0.29"
 - [ ] **MCP server pass-through support** - ❌ NOT STARTED
 - [ ] **Model selection and configuration** - ⚠️ PARTIAL (config structure exists)
 
-#### Phase 4: Visual Enhancement (Weeks 7-8) - ❌ EARLY STAGE
-- [ ] **Tachyonfx integration for UI animations** - ⚠️ DEPENDENCY ADDED (effects modules exist but mostly empty)
+#### Phase 4: Visual Enhancement (Weeks 7-8) - 🚧 IN PROGRESS
+- [x] **Tachyonfx integration for UI animations** - ✅ INITIAL INTEGRATION
+  - Added global EffectManager, ambient neon border pulse, subtle HSL drift
+  - Post-processing pipeline runs each frame on terminal buffer
 - [ ] **Code diff visualization with effects** - ❌ NOT STARTED
-- [ ] **Syntax highlighting with color transitions** - ⚠️ PARTIAL (basic structure exists)  
-- [ ] **Theme system implementation** - ⚠️ PARTIAL (config support added)
-- [x] **Status indicators and progress bars** - ✅ BASIC IMPLEMENTATION (status bar exists)
+- [ ] **Syntax highlighting with color transitions** - ⚠️ PARTIAL (basic structure exists)
+- [x] **Theme system implementation** - ✅ FOUNDATION ADDED
+  - Cyberpunk palette + surface/background styles
+  - Applied background fill, tab highlight, chat/input borders
+- [x] **Status indicators and progress bars** - ✅ BASIC IMPLEMENTATION (status bar exists; restyled)
 
 #### Phase 5: Advanced Features (Weeks 9-10) - ❌ EARLY STAGE
 - [x] **Multi-session management** - ✅ COMPLETED (tabbed sessions, session switching implemented)

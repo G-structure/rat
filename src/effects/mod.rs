@@ -1,22 +1,19 @@
 // Effects system for visual enhancements using tachyonfx
-// This module will be expanded in Phase 4
+// Phase 4 foundation: themes + common effects + manager wiring
 
 pub mod code;
 pub mod text;
 pub mod themes;
 pub mod transitions;
+pub mod cyberpunk;
 
-// Placeholder types for now
-pub struct EffectsManager {
-    enabled: bool,
+// Lightweight toggle for enabling effects globally (future use)
+pub struct EffectsConfig {
+    pub enabled: bool,
 }
 
-impl EffectsManager {
-    pub fn new(enabled: bool) -> Self {
-        Self { enabled }
-    }
-
-    pub fn is_enabled(&self) -> bool {
-        self.enabled
+impl Default for EffectsConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }

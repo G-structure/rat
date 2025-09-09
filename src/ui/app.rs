@@ -3,10 +3,15 @@ use crossterm::event::{KeyCode, KeyEvent};
 use log::info;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Clear, Paragraph, Tabs},
+    widgets::{Block, Borders, Clear, Paragraph, Tabs, BorderType},
 };
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
+use std::time::Instant;
+
+use tachyonfx::{fx, Duration as FxDuration, EffectManager as FxManager, Interpolation};
+use crate::effects::cyberpunk::{CyberTheme, neon_pulse_border, subtle_hsl_drift, sweep_in_attention, glitch_burst};
+use tachyonfx::RefRect;
 
 use crate::acp::{Message, MessageContent, SessionId};
 use crate::app::UiToApp;
@@ -22,6 +27,10 @@ pub struct TuiManager {
     error_message: Option<String>,
     show_help: bool,
     ui_tx: mpsc::UnboundedSender<UiToApp>,
+    theme: CyberTheme,
+    fx: FxManager<&'static str>,
+    last_fx_tick: Instant,
+    ambient_fx_initialized: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +40,7 @@ pub struct Tab {
     pub session_id: Option<SessionId>,
     pub chat_view: ChatView,
     pub active: bool,
+    pub chat_area_ref: RefRect,
 }
 
 impl TuiManager {
@@ -44,10 +54,18 @@ impl TuiManager {
             error_message: None,
             show_help: false,
             ui_tx,
+            theme: CyberTheme::default(),
+            fx: FxManager::default(),
+            last_fx_tick: Instant::now(),
+            ambient_fx_initialized: false,
         })
     }
 
     pub fn render(&mut self, frame: &mut Frame) -> Result<()> {
+        // Background
+        let bg = Block::default().style(self.theme.background_style());
+        frame.render_widget(bg, frame.area());
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(
@@ -66,6 +84,7 @@ impl TuiManager {
 
             // Render active tab content
             if let Some(active_tab) = self.tabs.get_mut(self.active_tab) {
+                active_tab.chat_area_ref.set(chunks[1]);
                 active_tab.chat_view.render(frame, chunks[1])?;
             }
         } else {
@@ -86,6 +105,9 @@ impl TuiManager {
             self.render_help_popup(frame);
         }
 
+        // Apply global FX post-processing
+        self.apply_fx(frame);
+
         Ok(())
     }
 
@@ -94,8 +116,8 @@ impl TuiManager {
 
         let tabs = Tabs::new(tab_names)
             .block(Block::default().borders(Borders::BOTTOM))
-            .style(Style::default().white())
-            .highlight_style(Style::default().yellow().bold())
+            .style(self.theme.title_inactive())
+            .highlight_style(self.theme.title_active())
             .select(self.active_tab);
 
         frame.render_widget(tabs, area);
@@ -140,7 +162,8 @@ impl TuiManager {
                 Block::default()
                     .title("Error")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().red()),
+                    .border_type(BorderType::Double)
+                    .border_style(Style::default().fg(self.theme.palette.accent_a)),
             )
             .alignment(Alignment::Center)
             .wrap(ratatui::widgets::Wrap { trim: true });
@@ -184,7 +207,8 @@ impl TuiManager {
                 Block::default()
                     .title("Help")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().blue()),
+                    .border_type(BorderType::Double)
+                    .border_style(Style::default().fg(self.theme.palette.accent_b)),
             )
             .wrap(ratatui::widgets::Wrap { trim: true });
 
@@ -311,6 +335,15 @@ impl TuiManager {
         // Update status bar
         self.status_bar.tick().await?;
 
+        // Ensure long-running ambience is registered
+        if !self.ambient_fx_initialized {
+            // Subtle global hue drift
+            self.fx.add_unique_effect("global_drift", subtle_hsl_drift());
+            // Neon border pulse
+            self.fx.add_unique_effect("neon_border", neon_pulse_border(&self.theme));
+            self.ambient_fx_initialized = true;
+        }
+
         Ok(())
     }
 
@@ -320,6 +353,12 @@ impl TuiManager {
             t.agent_name == agent_name && t.session_id.as_ref() == Some(&message.session_id)
         }) {
             tab.chat_view.add_message(message).await?;
+            // Attention effect over the chat area when a message lands
+            let accent = self.theme.palette.accent_b;
+            let area_ref = tab.chat_area_ref.clone();
+            let attn = fx::dynamic_area(area_ref.clone(), sweep_in_attention(accent));
+            let glitch = fx::dynamic_area(area_ref, glitch_burst());
+            self.fx.add_unique_effect("chat-attn", fx::parallel(&[attn, glitch]));
         }
         Ok(())
     }
@@ -358,6 +397,7 @@ impl TuiManager {
                 session_id: Some(session_id),
                 chat_view: ChatView::new(self.config.layout.chat_history_limit),
                 active: true,
+                chat_area_ref: RefRect::default(),
             };
 
             // Deactivate other tabs
@@ -434,6 +474,7 @@ impl TuiManager {
                 session_id: None,
                 chat_view: ChatView::new(self.config.layout.chat_history_limit),
                 active: true,
+                chat_area_ref: RefRect::default(),
             };
             for t in &mut self.tabs {
                 t.active = false;
@@ -472,4 +513,17 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+impl TuiManager {
+    fn apply_fx(&mut self, frame: &mut Frame) {
+        // Use frame buffer and area for post-processing effects
+        let now = Instant::now();
+        let elapsed = now.saturating_duration_since(self.last_fx_tick);
+        self.last_fx_tick = now;
+
+        let elapsed_fx: FxDuration = elapsed.into();
+        let area = frame.area();
+        self.fx.process_effects(elapsed_fx, frame.buffer_mut(), area);
+    }
 }

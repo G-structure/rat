@@ -25,8 +25,11 @@ impl StatusBar {
     pub fn render(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
         let status_text = self.build_status_text();
 
-        let paragraph = Paragraph::new(status_text)
-            .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+        let paragraph = Paragraph::new(status_text).style(
+            Style::default()
+                .bg(Color::from_u32(0x121821))
+                .fg(Color::from_u32(0x18e5ff)),
+        );
 
         frame.render_widget(paragraph, area);
         Ok(())
