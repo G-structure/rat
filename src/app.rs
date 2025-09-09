@@ -25,6 +25,12 @@ pub enum UiToApp {
     ConnectAgent {
         agent_name: String,
     },
+    SendMessage {
+        agent_name: String,
+        session_id: SessionId,
+        content: String,
+        respond_to: oneshot::Sender<anyhow::Result<()>>,
+    },
 }
 
 pub struct App {
@@ -131,22 +137,27 @@ impl App {
             .take()
             .ok_or_else(|| anyhow::anyhow!("UI command receiver already taken"))?;
 
-        // Start the manager worker now that we're inside LocalSet
+        // Build AgentManager inline to guarantee readiness before main loop
         let manager_rx = self
             .manager_rx
             .take()
             .ok_or_else(|| anyhow::anyhow!("Manager receiver already taken"))?;
         let message_tx = self.message_tx.clone();
         let agent_config = self.config.agents.clone();
-        tokio::task::spawn_local(async move {
-            match AgentManager::new(agent_config, message_tx.clone()).await {
-                Ok(manager) => manager_worker(manager, manager_rx).await,
-                Err(e) => {
-                    let _ = message_tx.send(AppMessage::Error {
-                        error: format!("Failed to start AgentManager: {}", e),
-                    });
-                }
+        let mut manager = match AgentManager::new(agent_config, message_tx.clone()).await {
+            Ok(m) => m,
+            Err(e) => {
+                let _ = message_tx.send(AppMessage::Error {
+                    error: format!("Failed to start AgentManager: {}", e),
+                });
+                // Still proceed with an empty manager to avoid panic
+                return Err(e);
             }
+        };
+
+        // Spawn the worker after successful initialization
+        tokio::task::spawn_local(async move {
+            manager_worker(manager, manager_rx).await;
         });
 
         // Auto-connect configured agents via manager worker (non-blocking)
@@ -156,28 +167,36 @@ impl App {
 
         // Manager worker handles its own periodic tick.
 
+        // Spawn a blocking input thread to avoid starving the current-thread runtime
+        let (evt_tx, mut evt_rx) = mpsc::unbounded_channel::<Event>();
+        std::thread::spawn(move || {
+            loop {
+                match crossterm::event::read() {
+                    Ok(ev) => {
+                        // Ignore send errors when receiver dropped on shutdown
+                        let _ = evt_tx.send(ev);
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
         // Main event loop
-        let tick_rate = Duration::from_millis(50); // 20 FPS
+        let tick_rate = Duration::from_millis(50); // ~20 FPS
         let mut last_tick = Instant::now();
 
         loop {
-            let timeout = tick_rate
-                .checked_sub(last_tick.elapsed())
-                .unwrap_or_else(|| Duration::from_secs(0));
-
-            // Handle events - simplified approach
-            if crossterm::event::poll(timeout)? {
-                if let Ok(event) = crossterm::event::read() {
-                    match event {
-                        Event::Key(key) if key.kind == KeyEventKind::Press => {
-                            info!("Raw key event detected: {:?}", key);
-                            if self.handle_key_event(key).await? {
-                                break;
-                            }
+            // Handle at most one pending input event per frame (non-blocking)
+            if let Ok(event) = evt_rx.try_recv() {
+                match event {
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        info!("Raw key event detected: {:?}", key);
+                        if self.handle_key_event(key).await? {
+                            break;
                         }
-                        _ => {
-                            // Ignore other events for now
-                        }
+                    }
+                    _ => {
+                        // Ignore other events for now
                     }
                 }
             }
@@ -203,6 +222,14 @@ impl App {
                     }
                     UiToApp::ConnectAgent { agent_name } => {
                         let _ = self.manager_tx.send(ManagerCmd::ConnectAgent { agent_name });
+                    }
+                    UiToApp::SendMessage { agent_name, session_id, content, respond_to } => {
+                        let _ = self.manager_tx.send(ManagerCmd::SendMessage {
+                            agent_name,
+                            session_id,
+                            content,
+                            respond_to,
+                        });
                     }
                 }
             }
@@ -295,6 +322,9 @@ impl App {
                 session_id,
             } => {
                 info!("Session created for {}: {}", agent_name, session_id.0);
+                // Reflect status so users see immediate feedback in the status bar
+                self.tui_manager
+                    .set_agent_status(&agent_name, format!("Session {}", &session_id.0[..8]));
                 self.tui_manager.add_session(&agent_name, session_id)?;
             }
             AppMessage::Error { error } => {

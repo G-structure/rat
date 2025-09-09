@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use tokio::time::{timeout, Duration as TokioDuration};
 
 use super::{claude_code::ClaudeCodeAdapter, gemini::GeminiAdapter, AgentAdapter};
 use crate::acp::{Message, SessionId};
@@ -166,8 +167,9 @@ impl AgentManager {
             });
         }
 
-        match agent.create_session().await {
-            Ok(session_id) => {
+        let timeout_secs = self.config.connection_timeout_seconds.max(1);
+        match timeout(TokioDuration::from_secs(timeout_secs), agent.create_session()).await {
+            Ok(Ok(session_id)) => {
                 let _ = self.message_tx.send(AppMessage::SessionCreated {
                     agent_name: agent_name.to_string(),
                     session_id: session_id.clone(),
@@ -176,7 +178,7 @@ impl AgentManager {
                 info!("Created session {} for agent {}", session_id.0, agent_name);
                 Ok(session_id)
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 let error_msg = format!(
                     "Failed to create session for agent '{}': {}",
                     agent_name, e
@@ -184,6 +186,14 @@ impl AgentManager {
                 let _ = self.message_tx.send(AppMessage::Error {
                     error: error_msg.clone(),
                 });
+                Err(anyhow::anyhow!(error_msg))
+            }
+            Err(_) => {
+                let error_msg = format!(
+                    "Timed out creating session for agent '{}' after {}s",
+                    agent_name, timeout_secs
+                );
+                let _ = self.message_tx.send(AppMessage::Error { error: error_msg.clone() });
                 Err(anyhow::anyhow!(error_msg))
             }
         }

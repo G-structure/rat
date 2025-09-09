@@ -192,6 +192,28 @@ impl TuiManager {
     }
 
     pub async fn handle_key_event(&mut self, key: KeyEvent) -> Result<()> {
+        // Intercept Enter to send a chat message bound to the active session
+        if let KeyCode::Enter = key.code {
+            if let Some(active_tab) = self.tabs.get_mut(self.active_tab) {
+                if active_tab.chat_view.is_input_mode() {
+                    let content = active_tab.chat_view.get_input_buffer().trim().to_string();
+                    if !content.is_empty() {
+                        if let Some(session_id) = active_tab.session_id.clone() {
+                            let (tx, _rx) = oneshot::channel();
+                            let _ = self.ui_tx.send(UiToApp::SendMessage {
+                                agent_name: active_tab.agent_name.clone(),
+                                session_id,
+                                content,
+                                respond_to: tx,
+                            });
+                        } else {
+                            self.error_message = Some("No active session for this tab".to_string());
+                        }
+                    }
+                }
+            }
+        }
+
         // Handle global keys first
         match key.code {
             KeyCode::Char('?') => {
@@ -278,21 +300,38 @@ impl TuiManager {
     pub fn add_session(&mut self, agent_name: &str, session_id: SessionId) -> Result<()> {
         let tab_name = format!("{} ({})", agent_name, &session_id.0[..8]);
 
-        let tab = Tab {
-            name: tab_name,
-            agent_name: agent_name.to_string(),
-            session_id: Some(session_id),
-            chat_view: ChatView::new(self.config.layout.chat_history_limit),
-            active: true,
-        };
+        // If a pending tab exists for this agent, update it instead of creating a new one
+        if let Some((idx, t)) = self
+            .tabs
+            .iter_mut()
+            .enumerate()
+            .find(|(_, t)| t.agent_name == agent_name && t.session_id.is_none())
+        {
+            t.session_id = Some(session_id);
+            t.name = tab_name;
 
-        // Deactivate other tabs
-        for existing_tab in &mut self.tabs {
-            existing_tab.active = false;
+            // Deactivate other tabs and activate this one
+            for (i, existing_tab) in self.tabs.iter_mut().enumerate() {
+                existing_tab.active = i == idx;
+            }
+            self.active_tab = idx;
+        } else {
+            let tab = Tab {
+                name: tab_name,
+                agent_name: agent_name.to_string(),
+                session_id: Some(session_id),
+                chat_view: ChatView::new(self.config.layout.chat_history_limit),
+                active: true,
+            };
+
+            // Deactivate other tabs
+            for existing_tab in &mut self.tabs {
+                existing_tab.active = false;
+            }
+
+            self.tabs.push(tab);
+            self.active_tab = self.tabs.len() - 1;
         }
-
-        self.tabs.push(tab);
-        self.active_tab = self.tabs.len() - 1;
 
         Ok(())
     }
@@ -340,6 +379,32 @@ impl TuiManager {
             agent_name,
             respond_to: tx,
         });
+
+        // Create or focus a pending tab so the user sees immediate feedback
+        if let Some(existing_idx) = self
+            .tabs
+            .iter()
+            .position(|t| t.agent_name == "claude-code" && t.session_id.is_none())
+        {
+            // Focus the existing pending tab
+            for (i, t) in self.tabs.iter_mut().enumerate() {
+                t.active = i == existing_idx;
+            }
+            self.active_tab = existing_idx;
+        } else {
+            let tab = Tab {
+                name: "claude-code (creating)".to_string(),
+                agent_name: "claude-code".to_string(),
+                session_id: None,
+                chat_view: ChatView::new(self.config.layout.chat_history_limit),
+                active: true,
+            };
+            for t in &mut self.tabs {
+                t.active = false;
+            }
+            self.tabs.push(tab);
+            self.active_tab = self.tabs.len() - 1;
+        }
 
         // Provide immediate, non-blocking UI feedback
         self.status_bar

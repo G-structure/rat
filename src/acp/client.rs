@@ -358,6 +358,10 @@ impl AcpClient {
             .stdout
             .take()
             .ok_or_else(|| anyhow::anyhow!("Failed to get stdout handle"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Failed to get stderr handle"))?;
 
         // Create channel for communication with ACP thread
         let (command_tx, command_rx) = mpsc::unbounded_channel::<AcpCommand>();
@@ -365,6 +369,32 @@ impl AcpClient {
         // Clone the client for the ACP thread
         let client_clone = self.client.clone();
         let agent_name = self.agent_name.clone();
+
+        // Drain agent stderr in the background to prevent pipe backpressure deadlocks
+        {
+            let agent_name = self.agent_name.clone();
+            tokio::task::spawn_local(async move {
+                use tokio::io::AsyncBufReadExt;
+                let mut reader = BufReader::new(stderr);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let trimmed = line.trim_end();
+                            if !trimmed.is_empty() {
+                                warn!("[{} stderr] {}", agent_name, trimmed);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Error reading [{}] stderr: {}", agent_name, e);
+                            break;
+                        }
+                    }
+                }
+            });
+        }
 
         // Spawn ACP thread with single-threaded runtime
         let acp_handle = thread::spawn(move || {
