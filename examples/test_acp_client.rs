@@ -18,6 +18,7 @@ async fn main() -> Result<()> {
     }
 
     let agent_command = &args[1];
+    let extra_args: Vec<String> = if args.len() > 2 { args[2..].to_vec() } else { vec![] };
 
     println!("Testing ACP client with agent: {}", agent_command);
 
@@ -25,7 +26,7 @@ async fn main() -> Result<()> {
     let (message_tx, mut message_rx) = mpsc::unbounded_channel::<AppMessage>();
 
     // Create ACP client
-    let mut client = AcpClient::new("test-agent", agent_command, message_tx);
+    let mut client = AcpClient::new("test-agent", agent_command, extra_args, None, message_tx);
 
     println!("Starting ACP client...");
 

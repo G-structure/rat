@@ -6,8 +6,10 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Tabs},
 };
 use std::collections::HashMap;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::acp::{Message, SessionId};
+use crate::app::UiToApp;
 use crate::config::UiConfig;
 use crate::ui::{chat::ChatView, components::AgentSelector, statusbar::StatusBar};
 
@@ -19,6 +21,7 @@ pub struct TuiManager {
     status_bar: StatusBar,
     error_message: Option<String>,
     show_help: bool,
+    ui_tx: mpsc::UnboundedSender<UiToApp>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,7 +34,7 @@ pub struct Tab {
 }
 
 impl TuiManager {
-    pub fn new(config: UiConfig) -> Result<Self> {
+    pub fn new(config: UiConfig, ui_tx: mpsc::UnboundedSender<UiToApp>) -> Result<Self> {
         Ok(Self {
             config,
             active_tab: 0,
@@ -40,6 +43,7 @@ impl TuiManager {
             status_bar: StatusBar::new(),
             error_message: None,
             show_help: false,
+            ui_tx,
         })
     }
 
@@ -328,31 +332,23 @@ impl TuiManager {
     }
 
     pub async fn create_new_session(&mut self) -> Result<()> {
-        // Create a new tab for a session - for now, we'll use a dummy session
-        // In a real implementation, this would communicate with the app to create a real session
-        let session_id = SessionId(format!("session-{}", uuid::Uuid::new_v4()));
-        let tab_name = format!("Session {}", self.tabs.len() + 1);
+        // Request a real session from the App layer without blocking the UI.
+        let agent_name = "claude-code".to_string();
+        let (tx, rx) = oneshot::channel();
+        // Best-effort send; errors surface through AppMessage::Error handling
+        let _ = self.ui_tx.send(UiToApp::CreateSession {
+            agent_name,
+            respond_to: tx,
+        });
 
-        let new_tab = Tab {
-            name: tab_name,
-            agent_name: "claude-code".to_string(), // Default agent
-            session_id: Some(session_id),
-            chat_view: ChatView::new(1000), // Max 1000 messages
-            active: true,
-        };
+        // Provide immediate, non-blocking UI feedback
+        self.status_bar
+            .set_agent_status("claude-code".to_string(), "Creating session...".to_string());
 
-        // Set all existing tabs to inactive
-        for tab in &mut self.tabs {
-            tab.active = false;
-        }
-
-        self.tabs.push(new_tab);
-        self.active_tab = self.tabs.len() - 1;
-
-        info!(
-            "Created new session tab: {}",
-            self.tabs[self.active_tab].name
-        );
+        // Optionally, we could await rx and use the SessionId to name the tab,
+        // but to keep the UI responsive we rely on AppMessage::SessionCreated
+        // to add the tab when the session is ready.
+        let _ = rx;
         Ok(())
     }
 }

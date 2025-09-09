@@ -136,8 +136,14 @@ impl AgentAdapter for ClaudeCodeAdapter {
         // Get or install the command
         let command = self.get_or_install_command().await?;
 
-        // Create and start ACP client
-        let mut client = AcpClient::new(&name, command.path.to_str().unwrap(), message_tx);
+        // Create and start ACP client (include args/env)
+        let mut client = AcpClient::new(
+            &name,
+            command.path.to_str().unwrap(),
+            command.args.clone(),
+            command.env.clone(),
+            message_tx,
+        );
 
         client.start().await.context("Failed to start ACP client")?;
 

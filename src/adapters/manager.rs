@@ -255,6 +255,19 @@ impl AgentManager {
             .collect()
     }
 
+    #[cfg(test)]
+    pub fn insert_agent_for_test(
+        &mut self,
+        name: String,
+        adapter: Box<dyn AgentAdapter>,
+    ) {
+        self.agents.insert(name, adapter);
+    }
+
+    pub fn register_agent(&mut self, name: String, adapter: Box<dyn AgentAdapter>) {
+        self.agents.insert(name, adapter);
+    }
+
     pub async fn auto_connect_agents(&mut self) -> Result<()> {
         info!("Auto-connecting configured agents");
 

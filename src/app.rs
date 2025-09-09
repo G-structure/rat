@@ -8,21 +8,36 @@ use ratatui::{
 use std::collections::HashMap;
 use std::io;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
+use std::time::Duration as StdDuration;
 
 use crate::acp::{AcpClient, Message, SessionId};
 use crate::adapters::AgentManager;
 use crate::config::Config;
 use crate::ui::TuiManager;
 
+// Messages sent from UI layer to App layer
+pub enum UiToApp {
+    CreateSession {
+        agent_name: String,
+        respond_to: oneshot::Sender<anyhow::Result<SessionId>>,
+    },
+    ConnectAgent {
+        agent_name: String,
+    },
+}
+
 pub struct App {
     config: Config,
-    agent_manager: AgentManager,
     tui_manager: TuiManager,
     should_quit: bool,
     last_tick: Instant,
     message_rx: Option<mpsc::UnboundedReceiver<AppMessage>>,
     message_tx: mpsc::UnboundedSender<AppMessage>,
+    ui_cmd_rx: Option<mpsc::UnboundedReceiver<UiToApp>>,
+    ui_cmd_tx: mpsc::UnboundedSender<UiToApp>,
+    manager_tx: mpsc::UnboundedSender<ManagerCmd>,
+    manager_rx: Option<mpsc::UnboundedReceiver<ManagerCmd>>,
 }
 
 #[derive(Debug, Clone)]
@@ -52,18 +67,22 @@ impl App {
         info!("Initializing application");
 
         let (message_tx, message_rx) = mpsc::unbounded_channel();
+        let (ui_cmd_tx, ui_cmd_rx) = mpsc::unbounded_channel();
+        let (manager_tx, manager_rx) = mpsc::unbounded_channel();
 
-        let agent_manager = AgentManager::new(config.agents.clone(), message_tx.clone()).await?;
-        let tui_manager = TuiManager::new(config.ui.clone())?;
+        let tui_manager = TuiManager::new(config.ui.clone(), ui_cmd_tx.clone())?;
 
         Ok(Self {
             config,
-            agent_manager,
             tui_manager,
             should_quit: false,
             last_tick: Instant::now(),
             message_rx: Some(message_rx),
             message_tx,
+            ui_cmd_rx: Some(ui_cmd_rx),
+            ui_cmd_tx,
+            manager_tx,
+            manager_rx: Some(manager_rx),
         })
     }
 
@@ -73,15 +92,22 @@ impl App {
         if !self.config.agents.is_agent_enabled(agent_name) {
             return Err(anyhow::anyhow!("Agent '{}' is not enabled", agent_name));
         }
-
-        self.agent_manager.connect_agent(agent_name).await?;
+        let _ = self
+            .manager_tx
+            .send(ManagerCmd::ConnectAgent { agent_name: agent_name.to_string() });
 
         Ok(())
     }
 
     pub async fn run(&mut self) -> Result<()> {
         info!("Starting RAT application");
+        // Run the main loop inside a LocalSet so we can use spawn_local for non-Send tasks
+        let local = tokio::task::LocalSet::new();
+        local.run_until(self.run_inner()).await
+    }
 
+    async fn run_inner(&mut self) -> Result<()> {
+        
         // Setup terminal
         crossterm::terminal::enable_raw_mode().context("Failed to enable raw mode")?;
         crossterm::execute!(
@@ -99,16 +125,36 @@ impl App {
             .take()
             .ok_or_else(|| anyhow::anyhow!("Message receiver already taken"))?;
 
-        // Auto-connect configured agents
-        let auto_connect_agents = self.config.agents.auto_connect.clone();
-        for agent_name in auto_connect_agents {
-            if let Err(e) = self.connect_agent(&agent_name).await {
-                warn!("Failed to auto-connect agent '{}': {}", agent_name, e);
-                let _ = self.message_tx.send(AppMessage::Error {
-                    error: format!("Failed to connect to {}: {}", agent_name, e),
-                });
+        // Take the UI command receiver
+        let mut ui_cmd_rx = self
+            .ui_cmd_rx
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("UI command receiver already taken"))?;
+
+        // Start the manager worker now that we're inside LocalSet
+        let manager_rx = self
+            .manager_rx
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Manager receiver already taken"))?;
+        let message_tx = self.message_tx.clone();
+        let agent_config = self.config.agents.clone();
+        tokio::task::spawn_local(async move {
+            match AgentManager::new(agent_config, message_tx.clone()).await {
+                Ok(manager) => manager_worker(manager, manager_rx).await,
+                Err(e) => {
+                    let _ = message_tx.send(AppMessage::Error {
+                        error: format!("Failed to start AgentManager: {}", e),
+                    });
+                }
             }
+        });
+
+        // Auto-connect configured agents via manager worker (non-blocking)
+        for agent_name in self.config.agents.auto_connect.clone() {
+            let _ = self.manager_tx.send(ManagerCmd::ConnectAgent { agent_name });
         }
+
+        // Manager worker handles its own periodic tick.
 
         // Main event loop
         let tick_rate = Duration::from_millis(50); // 20 FPS
@@ -141,9 +187,30 @@ impl App {
                 self.handle_app_message(msg).await?;
             }
 
+            // Handle at most one UI -> App command per frame to keep UI responsive
+            if let Ok(cmd) = ui_cmd_rx.try_recv() {
+                match cmd {
+                    UiToApp::CreateSession {
+                        agent_name,
+                        respond_to,
+                    } => {
+                        // Offload session creation to background to avoid blocking UI loop
+                        // Forward to manager worker which will respond via oneshot
+                        let _ = self.manager_tx.send(ManagerCmd::CreateSession {
+                            agent_name,
+                            respond_to,
+                        });
+                    }
+                    UiToApp::ConnectAgent { agent_name } => {
+                        let _ = self.manager_tx.send(ManagerCmd::ConnectAgent { agent_name });
+                    }
+                }
+            }
+
             // Tick
             if last_tick.elapsed() >= tick_rate {
-                self.tick().await?;
+                // Only tick the TUI here; agent manager ticks in its own background task
+                self.tui_manager.tick().await?;
                 last_tick = Instant::now();
             }
 
@@ -243,9 +310,6 @@ impl App {
     }
 
     async fn tick(&mut self) -> Result<()> {
-        // Update agent manager
-        self.agent_manager.tick().await?;
-
         // Update TUI manager
         self.tui_manager.tick().await?;
 
@@ -260,7 +324,9 @@ impl App {
         info!("Cleaning up application");
 
         // Disconnect all agents
-        self.agent_manager.disconnect_all().await?;
+        let (tx, rx) = oneshot::channel();
+        let _ = self.manager_tx.send(ManagerCmd::DisconnectAll { respond_to: tx });
+        let _ = rx.await; // ignore errors during shutdown
 
         // Save configuration if auto-save is enabled
         if self.config.general.auto_save_sessions {
@@ -279,16 +345,15 @@ impl App {
         Ok(())
     }
 
-    pub fn get_agent_names(&self) -> Vec<String> {
-        self.agent_manager.get_agent_names()
-    }
-
-    pub fn get_active_sessions(&self) -> HashMap<String, Vec<SessionId>> {
-        self.agent_manager.get_active_sessions()
-    }
-
     pub async fn create_session(&mut self, agent_name: &str) -> Result<SessionId> {
-        self.agent_manager.create_session(agent_name).await
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .manager_tx
+            .send(ManagerCmd::CreateSession {
+                agent_name: agent_name.to_string(),
+                respond_to: tx,
+            });
+        rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("manager task ended")))
     }
 
     pub async fn send_message(
@@ -297,8 +362,67 @@ impl App {
         session_id: &SessionId,
         content: String,
     ) -> Result<()> {
-        self.agent_manager
-            .send_message(agent_name, session_id, content)
-            .await
+        let (tx, rx) = oneshot::channel();
+        let _ = self.manager_tx.send(ManagerCmd::SendMessage {
+            agent_name: agent_name.to_string(),
+            session_id: session_id.clone(),
+            content,
+            respond_to: tx,
+        });
+        rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("manager task ended")))
+    }
+}
+
+// Commands to the single-threaded manager worker
+pub enum ManagerCmd {
+    ConnectAgent { agent_name: String },
+    CreateSession {
+        agent_name: String,
+        respond_to: oneshot::Sender<anyhow::Result<SessionId>>,
+    },
+    SendMessage {
+        agent_name: String,
+        session_id: SessionId,
+        content: String,
+        respond_to: oneshot::Sender<anyhow::Result<()>>,
+    },
+    DisconnectAll {
+        respond_to: oneshot::Sender<()>,
+    },
+}
+
+pub async fn manager_worker(
+    mut manager: AgentManager,
+    mut rx: mpsc::UnboundedReceiver<ManagerCmd>,
+) {
+    let mut interval = tokio::time::interval(StdDuration::from_millis(50));
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                if let Err(e) = manager.tick().await {
+                    warn!("Agent manager tick error: {}", e);
+                }
+            }
+            cmd = rx.recv() => {
+                match cmd {
+                    Some(ManagerCmd::ConnectAgent { agent_name }) => {
+                        if let Err(e) = manager.connect_agent(&agent_name).await {
+                            warn!("Failed to connect agent '{}': {}", agent_name, e);
+                        }
+                    }
+                    Some(ManagerCmd::CreateSession { agent_name, respond_to }) => {
+                        let _ = respond_to.send(manager.create_session(&agent_name).await);
+                    }
+                    Some(ManagerCmd::SendMessage { agent_name, session_id, content, respond_to }) => {
+                        let _ = respond_to.send(manager.send_message(&agent_name, &session_id, content).await);
+                    }
+                    Some(ManagerCmd::DisconnectAll { respond_to }) => {
+                        let _ = manager.disconnect_all().await;
+                        let _ = respond_to.send(());
+                    }
+                    None => break,
+                }
+            }
+        }
     }
 }

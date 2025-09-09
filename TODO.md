@@ -20,13 +20,15 @@ The RAT application currently shows successful ACP connection logs but lacks int
 ## Implementation Plan
 
 ### Phase 1: Fix Session Management and Message Routing
-
+Important the TUI must remain responsive, do not block the UI thread.
+Need to handle the session creation asynchronously without blocking the UI
 #### 1.1 Replace Dummy Sessions with Real ACP Sessions
 **Files to modify:**
 - `rat/src/ui/app.rs:183-196` - `create_new_session()` method
 - `rat/src/app.rs:136-148` - `create_session()` method
 
-**Zed reference:** 
+**Zed reference:**
+Make sure to look at the zed reference code before writing any code. Feel free to explore the zed codebase to understand the context of these reference snips.
 - `zed/crates/agent_servers/src/acp.rs:151-165` - Real session creation with AUTH_REQUIRED handling
 - `zed/crates/agent_ui/src/acp/thread_view.rs:310-330` - Connection to new_thread
 
@@ -42,14 +44,14 @@ The RAT application currently shows successful ACP connection logs but lacks int
 pub async fn create_new_session(&mut self) -> Result<()> {
     // Remove this line:
     // let session_id = SessionId(format!("session-{}", uuid::Uuid::new_v4()));
-    
+
     // Add real session creation via message passing
     let (tx, rx) = oneshot::channel();
     self.message_tx.send(AppMessage::CreateSession {
         agent_name: "claude-code".to_string(),
         respond_to: tx,
     })?;
-    
+
     let session_id = rx.await??;
     // Continue with tab creation using real session_id
 }
@@ -113,7 +115,7 @@ KeyCode::Enter => {
 
 **Tasks:**
 - [ ] Add error code checking in session creation
-- [ ] Create `AuthRequired` error type  
+- [ ] Create `AuthRequired` error type
 - [ ] Emit authentication required events to UI
 - [ ] Display authentication prompts in UI
 
@@ -154,12 +156,12 @@ match connection.create_session().await {
 // In rat/src/adapters/claude_code.rs
 async fn trigger_login_flow(&self) -> Result<()> {
     let command = self.get_or_install_command().await?;
-    
+
     // Spawn login command in terminal
     let mut login_process = Command::new(&command.path)
         .args(&["/login".to_string()])
         .spawn()?;
-        
+
     // Wait for login to complete
     login_process.wait().await?;
     Ok(())

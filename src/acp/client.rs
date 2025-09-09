@@ -270,6 +270,8 @@ impl acp::Client for RatClient {
 pub struct AcpClient {
     agent_name: String,
     command_path: String,
+    command_args: Vec<String>,
+    command_env: Option<HashMap<String, String>>,
     process: Option<Child>,
     connection: Option<RealAcpConnection>,
     acp_thread_handle: Option<thread::JoinHandle<()>>,
@@ -282,6 +284,8 @@ impl AcpClient {
     pub fn new(
         agent_name: &str,
         command_path: &str,
+        command_args: Vec<String>,
+        command_env: Option<HashMap<String, String>>,
         message_tx: mpsc::UnboundedSender<AppMessage>,
     ) -> Self {
         let client = RatClient::new(agent_name.to_string(), message_tx.clone());
@@ -289,6 +293,8 @@ impl AcpClient {
         Self {
             agent_name: agent_name.to_string(),
             command_path: command_path.to_string(),
+            command_args,
+            command_env,
             process: None,
             connection: None,
             acp_thread_handle: None,
@@ -302,7 +308,14 @@ impl AcpClient {
         info!("Starting ACP agent: {}", self.agent_name);
 
         // Start the agent process
-        let mut child = Command::new(&self.command_path)
+        let mut cmd = Command::new(&self.command_path);
+        if !self.command_args.is_empty() {
+            cmd.args(&self.command_args);
+        }
+        if let Some(env) = &self.command_env {
+            cmd.envs(env);
+        }
+        let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
