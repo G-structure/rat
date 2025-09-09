@@ -42,8 +42,8 @@ impl RainState {
 /// Matrix-like digital rain that morphs into the target buffer content.
 /// Renders rain for ~1.6s, then progressively reveals the target by replacing
 /// cells based on the animation alpha.
-pub fn matrix_rain_morph(target: RefCount<Buffer>) -> Effect {
-    let timer = EffectTimer::from_ms(1800, Interpolation::QuadOut);
+pub fn matrix_rain_morph_with_duration(target: RefCount<Buffer>, duration_ms: u64) -> Effect {
+    let timer = EffectTimer::from_ms(duration_ms as u32, Interpolation::QuadOut);
 
     fx::effect_fn_buf(RainState::new(Rect::new(0, 0, 1, 1)), timer, move |state, ctx, buf| {
         // Initialize dimensions if they changed
@@ -126,6 +126,10 @@ pub fn matrix_rain_morph(target: RefCount<Buffer>) -> Effect {
             }
         }
     })
+}
+
+pub fn matrix_rain_morph(target: RefCount<Buffer>) -> Effect {
+    matrix_rain_morph_with_duration(target, 1800)
 }
 
 fn random_glyph(seed: u64) -> char {

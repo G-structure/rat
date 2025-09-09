@@ -51,6 +51,13 @@ pub struct EffectsConfig {
     pub diff_animation: bool,
     pub status_animation: bool,
     pub smooth_scrolling: bool,
+    pub startup: StartupEffectsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartupEffectsConfig {
+    pub enabled: bool,
+    pub duration_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +137,16 @@ impl Default for EffectsConfig {
             diff_animation: true,
             status_animation: true,
             smooth_scrolling: true,
+            startup: StartupEffectsConfig::default(),
+        }
+    }
+}
+
+impl Default for StartupEffectsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            duration_ms: 1800,
         }
     }
 }
@@ -300,6 +317,13 @@ impl EffectsConfig {
         }
         if other.smooth_scrolling != EffectsConfig::default().smooth_scrolling {
             self.smooth_scrolling = other.smooth_scrolling;
+        }
+        // Startup
+        if other.startup.enabled != StartupEffectsConfig::default().enabled {
+            self.startup.enabled = other.startup.enabled;
+        }
+        if other.startup.duration_ms != StartupEffectsConfig::default().duration_ms {
+            self.startup.duration_ms = other.startup.duration_ms;
         }
     }
 }

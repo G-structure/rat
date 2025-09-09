@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use tachyonfx::{fx, Duration as FxDuration, EffectManager as FxManager, Interpolation};
 use crate::effects::cyberpunk::{CyberTheme, neon_pulse_border, subtle_hsl_drift, sweep_in_attention, glitch_burst};
-use crate::effects::startup::matrix_rain_morph;
+use crate::effects::startup::matrix_rain_morph_with_duration;
 use tachyonfx::RefRect;
 use tachyonfx::{ref_count, BufferRenderer};
 
@@ -36,6 +36,7 @@ pub struct TuiManager {
     // Startup animation state
     startup_effect: Option<tachyonfx::Effect>,
     startup_running: bool,
+    startup_duration_ms: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +51,8 @@ pub struct Tab {
 
 impl TuiManager {
     pub fn new(config: UiConfig, ui_tx: mpsc::UnboundedSender<UiToApp>) -> Result<Self> {
+        let startup_duration_ms = config.effects.startup.duration_ms;
+        let startup_running = config.effects.enabled && config.effects.startup.enabled;
         Ok(Self {
             config,
             active_tab: 0,
@@ -64,7 +67,8 @@ impl TuiManager {
             last_fx_tick: Instant::now(),
             ambient_fx_initialized: false,
             startup_effect: None,
-            startup_running: true,
+            startup_running,
+            startup_duration_ms,
         })
     }
 
@@ -112,11 +116,14 @@ impl TuiManager {
             self.render_help_popup(frame);
         }
 
-        // Apply startup animation if active; otherwise ambient fx
-        if self.startup_running {
-            self.apply_startup_fx(frame);
-        } else {
-            self.apply_fx(frame);
+        // Apply startup/ambient effects depending on config
+        if self.config.effects.enabled {
+            if self.startup_running {
+                self.apply_startup_fx(frame);
+            } else {
+                // Ambient FX init happens in tick
+                self.apply_fx(frame);
+            }
         }
 
         Ok(())
@@ -346,8 +353,8 @@ impl TuiManager {
         // Update status bar
         self.status_bar.tick().await?;
 
-        // Ensure long-running ambience is registered
-        if !self.ambient_fx_initialized {
+        // Ensure long-running ambience is registered (if enabled)
+        if self.config.effects.enabled && !self.ambient_fx_initialized {
             // Subtle global hue drift
             self.fx.add_unique_effect("global_drift", subtle_hsl_drift());
             // Neon border pulse
@@ -550,7 +557,7 @@ impl TuiManager {
                 src.render_buffer(ratatui::layout::Offset::default(), &mut dst);
             }
             // Effect morphs rain into target UI
-            self.startup_effect = Some(matrix_rain_morph(target));
+            self.startup_effect = Some(matrix_rain_morph_with_duration(target, self.startup_duration_ms));
             self.last_fx_tick = Instant::now();
         }
 

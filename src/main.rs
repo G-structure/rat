@@ -29,6 +29,14 @@ struct Cli {
     /// Agent to start with (claude-code, gemini)
     #[arg(short, long)]
     agent: Option<String>,
+
+    /// Disable all effects (theme animations, chat sweeps, etc.)
+    #[arg(long)]
+    no_effects: bool,
+
+    /// Disable startup intro animation (Matrix rain morph)
+    #[arg(long)]
+    no_intro: bool,
 }
 
 #[tokio::main]
@@ -87,7 +95,7 @@ async fn main() -> Result<()> {
     );
 
     // Load configuration
-    let config = match cli.config {
+    let mut config = match cli.config {
         Some(path) => {
             info!("Loading configuration from: {}", path);
             Config::from_file(&path).await?
@@ -97,6 +105,14 @@ async fn main() -> Result<()> {
             Config::default()
         }
     };
+
+    // CLI overrides for effects
+    if cli.no_effects {
+        config.ui.effects.enabled = false;
+    }
+    if cli.no_intro {
+        config.ui.effects.startup.enabled = false;
+    }
 
     // Initialize and run the application
     let mut app = App::new(config).await?;
