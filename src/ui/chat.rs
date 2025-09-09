@@ -47,15 +47,45 @@ impl ChatView {
     }
 
     fn render_messages(&self, frame: &mut Frame, area: Rect) {
-        let messages: Vec<ListItem> = self
-            .messages
-            .iter()
-            .skip(self.scroll_offset)
-            .map(|msg| self.format_message(msg))
-            .collect();
+        let available_height = area.height.saturating_sub(2) as usize; // Account for borders
+        let total_messages = self.messages.len();
+
+        // Calculate which messages to show
+        let messages: Vec<ListItem> = if total_messages <= available_height {
+            // Show all messages if they fit
+            self.messages
+                .iter()
+                .map(|msg| self.format_message(msg))
+                .collect()
+        } else {
+            // Show the most recent messages that fit, respecting scroll offset
+            let start_idx = if self.scroll_offset == 0 {
+                // Auto-scroll mode: show latest messages
+                total_messages.saturating_sub(available_height)
+            } else {
+                // Manual scroll mode: respect scroll offset
+                self.scroll_offset
+                    .min(total_messages.saturating_sub(available_height))
+            };
+
+            self.messages
+                .iter()
+                .skip(start_idx)
+                .take(available_height)
+                .map(|msg| self.format_message(msg))
+                .collect()
+        };
+
+        let title = if total_messages <= available_height {
+            format!("Conversation ({} messages)", total_messages)
+        } else if self.scroll_offset == 0 {
+            format!("Conversation ({} messages) - Latest", total_messages)
+        } else {
+            format!("Conversation ({} messages) - ↑↓ to scroll", total_messages)
+        };
 
         let messages_list =
-            List::new(messages).block(Block::default().title("Conversation").borders(Borders::ALL));
+            List::new(messages).block(Block::default().title(title).borders(Borders::ALL));
 
         frame.render_widget(messages_list, area);
     }
@@ -201,13 +231,20 @@ impl ChatView {
                 }
             }
             KeyCode::Up => {
-                if self.scroll_offset > 0 {
-                    self.scroll_offset -= 1;
+                if !self.input_mode {
+                    // Scroll up (show older messages)
+                    let max_scroll = self.messages.len().saturating_sub(1);
+                    if self.scroll_offset < max_scroll {
+                        self.scroll_offset += 1;
+                    }
                 }
             }
             KeyCode::Down => {
-                if self.scroll_offset < self.messages.len().saturating_sub(1) {
-                    self.scroll_offset += 1;
+                if !self.input_mode {
+                    // Scroll down (show newer messages)
+                    if self.scroll_offset > 0 {
+                        self.scroll_offset -= 1;
+                    }
                 }
             }
             _ => {}
@@ -223,8 +260,8 @@ impl ChatView {
             self.messages.pop_front();
         }
 
-        // Auto-scroll to bottom
-        self.scroll_offset = self.messages.len().saturating_sub(1);
+        // Auto-scroll to bottom (set to 0 for auto-scroll mode)
+        self.scroll_offset = 0;
 
         Ok(())
     }

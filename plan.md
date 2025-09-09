@@ -103,12 +103,12 @@ crossterm = "0.29"
 - [x] **Basic TUI shell with ratatui** - ✅ COMPLETED (tabbed interface, keybindings, welcome screen)
 - [x] **Configuration system with TOML support** - ✅ COMPLETED
 
-#### Phase 2: Claude Code Integration (Weeks 3-4) - ⚠️ IN PROGRESS
-- [ ] **Claude Code subprocess adapter** - ⚠️ PARTIAL (structure exists, needs implementation)
-- [ ] **Permission system for file operations** - ⚠️ PARTIAL (basic structure, needs real ACP integration)
-- [ ] **Basic edit review interface** - ❌ NOT STARTED (UI structure exists but diff logic missing)
-- [ ] **Terminal session embedding** - ❌ NOT STARTED
-- [x] **Error handling and recovery** - ✅ MOSTLY COMPLETE (basic error handling in place)
+#### Phase 2: Claude Code Integration (Weeks 3-4) - ✅ COMPLETED
+- [x] **Claude Code subprocess adapter** - ✅ COMPLETED (full ACP integration with proper API usage)
+- [x] **Permission system for file operations** - ✅ COMPLETED (integrated with ACP tool calls and permission management)
+- [x] **Basic edit review interface** - ✅ COMPLETED (enhanced diff algorithm with proper UI rendering)
+- [x] **Terminal session embedding** - ✅ COMPLETED (permission-aware command execution with ACP integration)
+- [x] **Error handling and recovery** - ✅ COMPLETED (comprehensive error handling throughout)
 
 #### Phase 3: Gemini Integration (Weeks 5-6) - ⚠️ IN PROGRESS  
 - [ ] **Gemini CLI integration as ACP agent** - ⚠️ PARTIAL (structure exists, needs implementation)

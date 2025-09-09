@@ -1,3 +1,4 @@
+use agent_client_protocol as acp;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -107,6 +108,159 @@ impl PermissionRequest {
             requested_at: chrono::Utc::now(),
             responded_at: None,
         }
+    }
+
+    /// Create a permission request from an ACP tool call
+    pub fn from_acp_tool_call(session_id: SessionId, tool_call: &acp::ToolCall) -> Option<Self> {
+        // Extract permission info based on tool kind and content
+        let (request_type, description) = match tool_call.kind {
+            acp::ToolKind::Read => {
+                // Look for file operations in content or locations
+                if let Some(location) = tool_call.locations.first() {
+                    (
+                        PermissionType::FileRead {
+                            path: location.path.clone(),
+                        },
+                        format!("Read file: {}", location.path.display()),
+                    )
+                } else if let Some(acp::ToolCallContent::Diff { diff }) = tool_call.content.first()
+                {
+                    (
+                        PermissionType::FileRead {
+                            path: diff.path.clone(),
+                        },
+                        format!("Read file: {}", diff.path.display()),
+                    )
+                } else {
+                    (
+                        PermissionType::DirectoryList {
+                            path: std::env::current_dir().unwrap_or_default(),
+                        },
+                        "Read directory contents".to_string(),
+                    )
+                }
+            }
+            acp::ToolKind::Edit => {
+                if let Some(acp::ToolCallContent::Diff { diff }) = tool_call.content.first() {
+                    let preview = if diff.new_text.len() > 100 {
+                        format!("{}...", &diff.new_text[..100])
+                    } else {
+                        diff.new_text.clone()
+                    };
+                    (
+                        PermissionType::FileWrite {
+                            path: diff.path.clone(),
+                            content_preview: Some(preview),
+                        },
+                        format!("Edit file: {}", diff.path.display()),
+                    )
+                } else if let Some(location) = tool_call.locations.first() {
+                    (
+                        PermissionType::FileWrite {
+                            path: location.path.clone(),
+                            content_preview: None,
+                        },
+                        format!("Edit file: {}", location.path.display()),
+                    )
+                } else {
+                    return None;
+                }
+            }
+            acp::ToolKind::Delete => {
+                if let Some(location) = tool_call.locations.first() {
+                    (
+                        PermissionType::FileDelete {
+                            path: location.path.clone(),
+                        },
+                        format!("Delete file: {}", location.path.display()),
+                    )
+                } else {
+                    return None;
+                }
+            }
+            acp::ToolKind::Execute => {
+                // Try to extract command from title or raw input
+                let command_info = if let Some(raw_input) = &tool_call.raw_input {
+                    if let Ok(input_obj) = serde_json::from_value::<
+                        serde_json::Map<String, serde_json::Value>,
+                    >(raw_input.clone())
+                    {
+                        if let Some(cmd) = input_obj.get("command").and_then(|v| v.as_str()) {
+                            let args = input_obj
+                                .get("args")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default();
+                            Some((cmd.to_string(), args))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                if let Some((command, args)) = command_info {
+                    let full_command = if args.is_empty() {
+                        command.clone()
+                    } else {
+                        format!("{} {}", command, args.join(" "))
+                    };
+                    (
+                        PermissionType::CommandExecute { command, args },
+                        format!("Execute command: {}", full_command),
+                    )
+                } else {
+                    // Fallback to extracting from title
+                    (
+                        PermissionType::ProcessSpawn {
+                            command: tool_call.title.clone(),
+                        },
+                        format!("Execute: {}", tool_call.title),
+                    )
+                }
+            }
+            acp::ToolKind::Move => {
+                if let Some(location) = tool_call.locations.first() {
+                    (
+                        PermissionType::FileWrite {
+                            path: location.path.clone(),
+                            content_preview: None,
+                        },
+                        format!("Move file: {}", location.path.display()),
+                    )
+                } else {
+                    return None;
+                }
+            }
+            acp::ToolKind::Fetch => {
+                // Network request
+                (
+                    PermissionType::NetworkRequest {
+                        url: tool_call.title.clone(),
+                        method: "GET".to_string(),
+                    },
+                    format!("Fetch data: {}", tool_call.title),
+                )
+            }
+            _ => {
+                // Generic permission for other tool kinds
+                (
+                    PermissionType::ProcessSpawn {
+                        command: tool_call.title.clone(),
+                    },
+                    format!("Execute tool: {}", tool_call.title),
+                )
+            }
+        };
+
+        Some(Self::new(session_id, request_type, description))
     }
 
     pub fn respond(&mut self, response: PermissionResponse) {
@@ -309,7 +463,7 @@ fn permission_types_match(a: &PermissionType, b: &PermissionType) -> bool {
     }
 }
 
-fn is_safe_command(command: &str) -> bool {
+pub fn is_safe_command(command: &str) -> bool {
     const SAFE_COMMANDS: &[&str] = &[
         "ls", "cat", "head", "tail", "grep", "find", "pwd", "whoami", "date", "echo", "which",
         "git", "cargo", "npm", "python", "node",

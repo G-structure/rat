@@ -131,18 +131,22 @@ impl TerminalView {
     pub async fn execute_command(&mut self, command: &str, args: Vec<&str>) -> Result<String> {
         let process_id = uuid::Uuid::new_v4().to_string();
 
-        // Add command to output
-        self.add_line(
-            format!("> {} {}", command, args.join(" ")),
-            TerminalLineLevel::Command,
-        );
+        // Add command to output with better formatting
+        let full_command = if args.is_empty() {
+            command.to_string()
+        } else {
+            format!("{} {}", command, args.join(" "))
+        };
+        self.add_line(format!("$ {}", full_command), TerminalLineLevel::Command);
 
-        // Start process
+        // Start process with proper environment and working directory
         let mut child = Command::new(command)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()?;
+            .current_dir(std::env::current_dir().unwrap_or_else(|_| "/tmp".into()))
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("Failed to start process '{}': {}", command, e))?;
 
         let stdout = child
             .stdout
@@ -335,5 +339,89 @@ impl TerminalView {
 
         self.processes.clear();
         Ok(())
+    }
+
+    /// Execute a command from an ACP request with permission checking
+    pub async fn execute_acp_command(
+        &mut self,
+        command: &str,
+        args: &[String],
+        session_id: &crate::acp::SessionId,
+        permission_manager: &mut crate::acp::permissions::PermissionManager,
+    ) -> Result<String> {
+        use crate::acp::permissions::{PermissionResponse, PermissionType};
+
+        // Request permission for command execution
+        let request_id = permission_manager.request_permission(
+            session_id.clone(),
+            PermissionType::CommandExecute {
+                command: command.to_string(),
+                args: args.to_vec(),
+            },
+            format!("Execute command: {} {}", command, args.join(" ")),
+        )?;
+
+        // Check if permission is automatically granted
+        let permission_type = PermissionType::CommandExecute {
+            command: command.to_string(),
+            args: args.to_vec(),
+        };
+
+        match permission_manager.check_auto_permission(session_id, &permission_type) {
+            Some(true) => {
+                // Auto-granted
+                permission_manager.respond_to_request(
+                    &request_id,
+                    PermissionResponse {
+                        request_id: request_id.clone(),
+                        granted: true,
+                        reason: Some("Auto-granted".to_string()),
+                        remember_choice: false,
+                    },
+                )?;
+            }
+            Some(false) => {
+                // Auto-denied
+                permission_manager.respond_to_request(
+                    &request_id,
+                    PermissionResponse {
+                        request_id: request_id.clone(),
+                        granted: false,
+                        reason: Some("Auto-denied".to_string()),
+                        remember_choice: false,
+                    },
+                )?;
+                return Err(anyhow::anyhow!("Command execution denied by policy"));
+            }
+            None => {
+                // Requires user decision - for now, auto-grant safe commands
+                let is_safe = crate::acp::permissions::is_safe_command(command);
+                permission_manager.respond_to_request(
+                    &request_id,
+                    PermissionResponse {
+                        request_id: request_id.clone(),
+                        granted: is_safe,
+                        reason: if is_safe {
+                            Some("Safe command auto-granted".to_string())
+                        } else {
+                            Some("Unsafe command requires explicit approval".to_string())
+                        },
+                        remember_choice: false,
+                    },
+                )?;
+
+                if !is_safe {
+                    self.add_line(
+                        format!("⚠️  Command '{}' requires user permission", command),
+                        TerminalLineLevel::System,
+                    );
+                    return Err(anyhow::anyhow!("Command requires user permission"));
+                }
+            }
+        }
+
+        // Execute the command
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.execute_command(command, args_str).await
     }
 }

@@ -8,7 +8,7 @@ use ratatui::{
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::acp::{Message, SessionId};
+use crate::acp::{Message, MessageContent, SessionId};
 use crate::app::UiToApp;
 use crate::config::UiConfig;
 use crate::ui::{chat::ChatView, components::AgentSelector, statusbar::StatusBar};
@@ -199,6 +199,24 @@ impl TuiManager {
                     let content = active_tab.chat_view.get_input_buffer().trim().to_string();
                     if !content.is_empty() {
                         if let Some(session_id) = active_tab.session_id.clone() {
+                            // Create and add user message to chat history immediately
+                            let user_message = Message::new(
+                                session_id.clone(),
+                                MessageContent::UserPrompt {
+                                    content: vec![agent_client_protocol::ContentBlock::Text(
+                                        agent_client_protocol::TextContent {
+                                            text: content.clone(),
+                                            annotations: Default::default(),
+                                        },
+                                    )],
+                                },
+                            );
+
+                            // Add to current tab's chat view
+                            if let Err(e) = active_tab.chat_view.add_message(user_message).await {
+                                self.error_message = Some(format!("Failed to add message: {}", e));
+                            }
+
                             let (tx, _rx) = oneshot::channel();
                             let _ = self.ui_tx.send(UiToApp::SendMessage {
                                 agent_name: active_tab.agent_name.clone(),

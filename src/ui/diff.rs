@@ -130,21 +130,79 @@ impl DiffView {
         ListItem::new(item_text).style(Style::default().yellow())
     }
 
-    fn format_diff_content<'a>(&self, proposal: &'a EditProposal) -> Vec<ListItem<'a>> {
+    fn format_diff_content(&self, proposal: &EditProposal) -> Vec<ListItem> {
+        use crate::utils::diff::DiffGenerator;
+
         if proposal.diff.is_empty() {
-            // Generate a simple diff if not provided
-            self.generate_simple_diff(proposal)
+            // Generate a proper diff using enhanced algorithm
+            self.generate_enhanced_diff(proposal)
         } else {
             // Parse existing diff
-            proposal
-                .diff
-                .lines()
-                .map(|line| self.format_diff_line(line))
-                .collect()
+            match crate::utils::diff::DiffGenerator::parse_diff(&proposal.diff) {
+                Ok(hunks) => {
+                    let mut items = Vec::new();
+                    for hunk in hunks {
+                        // Add hunk header
+                        items.push(
+                            ListItem::new(hunk.header.clone())
+                                .style(Style::default().cyan().bold()),
+                        );
+
+                        // Add hunk lines
+                        for line in &hunk.lines {
+                            items.push(self.format_diff_line_from_diffline(line));
+                        }
+                        items.push(ListItem::new("")); // Spacing between hunks
+                    }
+                    items
+                }
+                Err(_) => {
+                    // Fallback to line-by-line parsing
+                    proposal
+                        .diff
+                        .lines()
+                        .map(|line| self.format_diff_line(line))
+                        .collect()
+                }
+            }
         }
     }
 
-    fn generate_simple_diff<'a>(&self, proposal: &'a EditProposal) -> Vec<ListItem<'a>> {
+    fn generate_enhanced_diff(&self, proposal: &EditProposal) -> Vec<ListItem> {
+        use crate::utils::diff::DiffGenerator;
+
+        let diff_text =
+            DiffGenerator::generate_diff(&proposal.original_content, &proposal.proposed_content);
+
+        match DiffGenerator::parse_diff(&diff_text) {
+            Ok(hunks) => {
+                let mut items = Vec::new();
+                items.push(ListItem::new("--- Original").style(Style::default().red()));
+                items.push(ListItem::new("+++ Proposed").style(Style::default().green()));
+                items.push(ListItem::new(""));
+
+                for hunk in hunks {
+                    // Add hunk header with line numbers
+                    items.push(
+                        ListItem::new(hunk.header.clone()).style(Style::default().cyan().bold()),
+                    );
+
+                    // Add hunk lines
+                    for line in &hunk.lines {
+                        items.push(self.format_diff_line_from_diffline(line));
+                    }
+                    items.push(ListItem::new("")); // Spacing between hunks
+                }
+                items
+            }
+            Err(_) => {
+                // Fallback to simple diff
+                self.generate_simple_diff(proposal)
+            }
+        }
+    }
+
+    fn generate_simple_diff(&self, proposal: &EditProposal) -> Vec<ListItem> {
         let mut items = Vec::new();
 
         items.push(ListItem::new("--- Original").style(Style::default().red()));
@@ -169,15 +227,30 @@ impl DiffView {
         items
     }
 
-    fn format_diff_line<'a>(&self, line: &'a str) -> ListItem<'a> {
+    fn format_diff_line_from_diffline(&self, line: &crate::utils::diff::DiffLine) -> ListItem {
+        use crate::utils::diff::DiffLineType;
+        match line.line_type {
+            DiffLineType::Added => {
+                ListItem::new(line.content.clone()).style(Style::default().green())
+            }
+            DiffLineType::Removed => {
+                ListItem::new(line.content.clone()).style(Style::default().red())
+            }
+            DiffLineType::Context => {
+                ListItem::new(line.content.clone()).style(Style::default().white())
+            }
+        }
+    }
+
+    fn format_diff_line(&self, line: &str) -> ListItem {
         if line.starts_with('+') {
-            ListItem::new(line).style(Style::default().green())
+            ListItem::new(line.to_string()).style(Style::default().green())
         } else if line.starts_with('-') {
-            ListItem::new(line).style(Style::default().red())
+            ListItem::new(line.to_string()).style(Style::default().red())
         } else if line.starts_with("@@") {
-            ListItem::new(line).style(Style::default().cyan().bold())
+            ListItem::new(line.to_string()).style(Style::default().cyan().bold())
         } else {
-            ListItem::new(line)
+            ListItem::new(line.to_string())
         }
     }
 
