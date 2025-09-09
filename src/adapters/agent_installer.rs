@@ -114,6 +114,53 @@ impl AgentInstaller {
         self.install_gemini_locally().await
     }
 
+    /// Build a login command for Claude Code similar to Zed's flow.
+    ///
+    /// Preference order:
+    /// - Use the locally installed claude-code-acp's node_modules to run
+    ///   `@anthropic-ai/claude-code/cli.js /login` via `node`.
+    /// - Fallback to a `claude` executable in PATH with `/login`.
+    pub async fn get_claude_login_command(&self) -> Result<AgentCommand> {
+        // Try to leverage the local claude-code installation we manage, and derive
+        // the Claude Code CLI path from it (like Zed does).
+        if let Some(local_acp_command) = self.get_local_claude_code().await? {
+            // The first arg should be the JS entry path to the ACP adapter, e.g.
+            //   .../node_modules/@zed-industries/claude-code-acp/dist/index.js
+            // From that, derive:
+            //   .../node_modules/@anthropic-ai/claude-code/cli.js
+            if let Some(first_arg) = local_acp_command.args.get(0) {
+                let acp_entry = PathBuf::from(first_arg);
+                // Walk up to node_modules
+                let node_modules_dir = acp_entry
+                    .parent() // dist
+                    .and_then(|p| p.parent()) // @zed-industries/claude-code-acp
+                    .and_then(|p| p.parent()) // @zed-industries
+                    .and_then(|p| p.parent()) // node_modules
+                    .map(|p| p.to_path_buf());
+
+                if let Some(node_modules_dir) = node_modules_dir {
+                    let cli_js = node_modules_dir
+                        .join("@anthropic-ai")
+                        .join("claude-code")
+                        .join("cli.js");
+                    if cli_js.exists() {
+                        return Ok(AgentCommand::new(PathBuf::from("node"))
+                            .with_args(vec![cli_js.to_string_lossy().to_string(), "/login".into()]));
+                    }
+                }
+            }
+        }
+
+        // Fallback: try a `claude` executable in PATH.
+        if let Some(path) = self.find_in_path("claude").await {
+            return Ok(AgentCommand::new(path).with_args(vec!["/login".into()]));
+        }
+
+        Err(anyhow::anyhow!(
+            "Unable to locate Claude login CLI. Try installing @zed-industries/claude-code-acp or ensure `claude` is in PATH."
+        ))
+    }
+
     async fn find_in_path(&self, binary_name: &str) -> Option<PathBuf> {
         debug!("Searching for {} in PATH", binary_name);
 
