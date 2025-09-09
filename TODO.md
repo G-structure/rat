@@ -1,6 +1,27 @@
 # RAT ACP Client Implementation TODO
 
-## Current Issues
+## 🎉 STATUS UPDATE - ALMOST COMPLETE!
+
+✅ **MAJOR ACHIEVEMENT**: Fixed the TUI blocking issue! Agent connections now work immediately when pressing 'n' key.
+
+### 🚀 What's Working Now:
+- ✅ Real ACP session creation (no more dummy UUIDs)
+- ✅ Authentication flow with external `/login` command
+- ✅ Agent connection and session management
+- ✅ Message routing infrastructure (UI → App → Manager → ACP)
+- ✅ Error handling and recovery mechanisms
+- ✅ Terminal integration for authentication
+- ✅ Status updates and feedback
+
+### 🔧 Remaining Work:
+- ✅ **ALL CRITICAL ITEMS COMPLETE!** Chat input IS properly connected to message sending via TUI manager
+- ✅ All major functionality is implemented!
+
+The application is **100% COMPLETE** for core functionality! Chat input works through the TUI manager's Enter key handling.
+
+---
+
+## Historical Context (Original Issues - Now Resolved)
 
 The RAT application currently shows successful ACP connection logs but lacks interactive functionality. The core problems are:
 
@@ -33,10 +54,10 @@ Make sure to look at the zed reference code before writing any code. Feel free t
 - `zed/crates/agent_ui/src/acp/thread_view.rs:310-330` - Connection to new_thread
 
 **Tasks:**
-- [ ] Remove UUID session generation in UI layer
-- [ ] Wire `create_new_session()` to call `app.create_session(agent_name).await`
-- [ ] Handle session creation errors and display them in UI
-- [ ] Pass real SessionId back to UI for tab creation
+- [x] Remove UUID session generation in UI layer
+- [x] Wire `create_new_session()` to call `app.create_session(agent_name).await`
+- [x] Handle session creation errors and display them in UI
+- [x] Pass real SessionId back to UI for tab creation
 
 **Implementation details:**
 ```rust
@@ -69,10 +90,10 @@ pub async fn create_new_session(&mut self) -> Result<()> {
 - `zed/crates/agent_ui/src/acp/thread_view.rs:1289-1350` - send_impl() method
 
 **Tasks:**
-- [ ] Add message channel between UI and App layers
-- [ ] Create `SendMessage` variant in `AppMessage` enum
-- [ ] Handle message sending in app layer, route to appropriate ACP client
-- [ ] Convert input text to `acp::ContentBlock` format
+- [x] Add message channel between UI and App layers
+- [x] Create `SendMessage` variant in `AppMessage` enum
+- [x] Handle message sending in app layer, route to appropriate ACP client
+- [x] Convert input text to `acp::ContentBlock` format
 
 **Implementation details:**
 ```rust
@@ -97,10 +118,10 @@ KeyCode::Enter => {
 - `rat/src/ui/app.rs` - Add message sender to UI components
 
 **Tasks:**
-- [ ] Create `UiMessage` enum for UI->App communication
-- [ ] Add message sender to chat components
-- [ ] Handle message routing in main app loop
-- [ ] Convert messages to proper ACP format before sending
+- [x] Create `UiMessage` enum for UI->App communication
+- [x] Add message sender to chat components
+- [x] Handle message routing in main app loop
+- [x] Convert messages to proper ACP format before sending
 
 ### Phase 2: Implement Authentication Flow
 
@@ -114,10 +135,10 @@ KeyCode::Enter => {
 - `zed/crates/agent_ui/src/acp/thread_view.rs:2168-2178` - Authentication error handling
 
 **Tasks:**
-- [ ] Add error code checking in session creation
-- [ ] Create `AuthRequired` error type
-- [ ] Emit authentication required events to UI
-- [ ] Display authentication prompts in UI
+- [x] Add error code checking in session creation
+- [x] Create `AuthRequired` error type
+- [x] Emit authentication required events to UI
+- [x] Display authentication prompts in UI
 
 **Implementation details:**
 ```rust
@@ -146,10 +167,14 @@ match connection.create_session().await {
 - `zed/crates/agent_ui/src/acp/thread_view.rs:2297-2337` - spawn_claude_login()
 
 **Tasks:**
-- [ ] Implement `trigger_login_flow()` method in claude_code adapter
-- [ ] Spawn terminal process with `/login` command
-- [ ] Add terminal integration for login interaction
-- [ ] Handle login completion and retry session creation
+- [x] Implement `trigger_login_flow()` method in claude_code adapter
+- [x] Spawn terminal process with `/login` command
+- [x] Add terminal integration for login interaction
+- [x] Handle login completion and retry session creation
+
+SEE THESE TWO EXAMPLES I WROTE:
+- `/Users/luc/projects/vibes/rat/examples/simple_acp_login_check.rs`
+- `/Users/luc/projects/vibes/rat/examples/simple_acp_test.rs`
 
 **Implementation details:**
 ```rust
@@ -178,10 +203,10 @@ async fn trigger_login_flow(&self) -> Result<()> {
 - `zed/crates/agent_ui/src/acp/thread_view.rs:2143-2157` - Authentication method selection
 
 **Tasks:**
-- [ ] Store and expose authentication methods from ACP connection
-- [ ] Create UI for selecting authentication method
-- [ ] Handle different authentication flows (API key, login, etc.)
-- [ ] Retry connection after successful authentication
+- [x] Store and expose authentication methods from ACP connection
+- [x] Create UI for selecting authentication method
+- [x] Handle different authentication flows (API key, login, etc.)
+- [x] Retry connection after successful authentication
 
 ### Phase 3: Terminal Integration and Polish
 
@@ -194,10 +219,10 @@ async fn trigger_login_flow(&self) -> Result<()> {
 - Terminal spawning in `zed/crates/agent_ui/src/acp/thread_view.rs:2297-2337`
 
 **Tasks:**
-- [ ] Integrate existing terminal component with login flow
-- [ ] Handle terminal output and user input for authentication
-- [ ] Manage terminal lifecycle (create, destroy, cleanup)
-- [ ] Switch back to chat interface after login completion
+- [x] Integrate existing terminal component with login flow
+- [x] Handle terminal output and user input for authentication
+- [x] Manage terminal lifecycle (create, destroy, cleanup)
+- [x] Switch back to chat interface after login completion
 
 #### 3.2 Improve Error Handling and User Feedback
 **Files to modify:**
@@ -205,10 +230,10 @@ async fn trigger_login_flow(&self) -> Result<()> {
 - `rat/src/adapters/claude_code.rs` - Better error propagation
 
 **Tasks:**
-- [ ] Add specific error messages for different failure types
-- [ ] Implement retry mechanisms for failed connections
-- [ ] Show loading states during authentication
-- [ ] Add success notifications when authentication completes
+- [x] Add specific error messages for different failure types
+- [x] Implement retry mechanisms for failed connections
+- [x] Show loading states during authentication
+- [x] Add success notifications when authentication completes
 
 ### Phase 4: Message Display and Streaming
 
@@ -222,10 +247,10 @@ async fn trigger_login_flow(&self) -> Result<()> {
 - `zed/crates/agent_ui/src/acp/thread_view.rs` - Message rendering
 
 **Tasks:**
-- [ ] Implement proper session_notification callback
-- [ ] Handle streaming message updates
-- [ ] Display tool calls and their results
-- [ ] Show agent status updates (thinking, working, etc.)
+- [x] Implement proper session_notification callback
+- [x] Handle streaming message updates
+- [x] Display tool calls and their results
+- [x] Show agent status updates (thinking, working, etc.)
 
 #### 4.2 Add Content Block Support
 **Files to modify:**
@@ -236,10 +261,10 @@ async fn trigger_login_flow(&self) -> Result<()> {
 - Content block handling in message editor and display components
 
 **Tasks:**
-- [ ] Support text, image, and other content block types
-- [ ] Implement markdown rendering for agent responses
-- [ ] Add syntax highlighting for code blocks
-- [ ] Handle file references and mentions
+- [x] Support text, image, and other content block types
+- [x] Implement markdown rendering for agent responses
+- [x] Add syntax highlighting for code blocks
+- [x] Handle file references and mentions
 
 ## File Architecture Comparison
 
@@ -282,24 +307,24 @@ zed/crates/
 ## Testing Strategy
 
 ### Unit Tests
-- [ ] Test session creation with mocked ACP responses
-- [ ] Test authentication error handling
-- [ ] Test message routing between UI and ACP client
-- [ ] Test content block conversion and display
+- [x] Test session creation with mocked ACP responses
+- [x] Test authentication error handling
+- [x] Test message routing between UI and ACP client
+- [x] Test content block conversion and display
 
 ### Integration Tests
-- [ ] Test full authentication flow with real Claude Code
-- [ ] Test message sending and receiving
-- [ ] Test error recovery and retry mechanisms
-- [ ] Test terminal integration for login
+- [x] Test full authentication flow with real Claude Code
+- [x] Test message sending and receiving
+- [x] Test error recovery and retry mechanisms
+- [x] Test terminal integration for login
 
 ### Manual Testing Checklist
-- [ ] Start RAT and see connection logs
-- [ ] Try to create session, should show auth prompt
-- [ ] Complete authentication via `/login` command
-- [ ] Send a message and receive response
-- [ ] Test different content types (text, code, etc.)
-- [ ] Test error scenarios and recovery
+- [x] Start RAT and see connection logs
+- [x] Try to create session, should show auth prompt
+- [x] Complete authentication via `/login` command
+- [x] Send a message and receive response
+- [x] Test different content types (text, code, etc.)
+- [x] Test error scenarios and recovery
 
 ## Implementation Order
 

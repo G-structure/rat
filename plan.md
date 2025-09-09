@@ -96,10 +96,10 @@ crossterm = "0.29"
 
 ### Implementation Phases
 
-#### Phase 1: Core Infrastructure (Weeks 1-2) - ✅ MOSTLY COMPLETE
-- [ ] **Basic ACP client implementation using `agent-client-protocol`** - ⚠️ NEEDS COMPLETION (client has dummy implementations)
+#### Phase 1: Core Infrastructure (Weeks 1-2) - ✅ COMPLETED
+- [x] **Basic ACP client implementation using `agent-client-protocol`** - ✅ COMPLETED (claude-code-acp working)
 - [x] **Message serialization/deserialization** - ✅ COMPLETED
-- [ ] **Session management and connection handling** - ⚠️ PARTIAL (structure exists, needs real ACP integration)
+- [x] **Session management and connection handling** - ✅ COMPLETED (ACP integration working)
 - [x] **Basic TUI shell with ratatui** - ✅ COMPLETED (tabbed interface, keybindings, welcome screen)
 - [x] **Configuration system with TOML support** - ✅ COMPLETED
 
