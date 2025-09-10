@@ -186,74 +186,86 @@ impl App {
             }
         });
 
-        // Main event loop
+        // Main event loop (event- and tick-driven, no busy spin)
         let tick_rate = Duration::from_millis(50); // ~20 FPS
         let mut last_tick = Instant::now();
+        let mut next_frame_deadline = tokio::time::Instant::now() + tick_rate;
 
         loop {
-            // Handle at most one pending input event per frame (non-blocking)
-            if let Ok(event) = evt_rx.try_recv() {
-                match event {
-                    Event::Key(key) if key.kind == KeyEventKind::Press => {
-                        info!("Raw key event detected: {:?}", key);
-                        if self.handle_key_event(key).await? {
-                            break;
+            // Wait for either an input event, an app/ui message, or next tick
+            tokio::select! {
+                // Input events from blocking reader thread
+                maybe_ev = evt_rx.recv() => {
+                    if let Some(event) = maybe_ev {
+                        if let Event::Key(key) = event {
+                            if key.kind == KeyEventKind::Press {
+                                info!("Raw key event detected: {:?}", key);
+                                if self.handle_key_event(key).await? {
+                                    break;
+                                }
+                            }
+                        }
+                    } else {
+                        // Input channel closed; continue handling other events
+                    }
+                }
+
+                // App messages (agent updates, errors, etc.)
+                maybe_msg = message_rx.recv() => {
+                    if let Some(msg) = maybe_msg {
+                        self.handle_app_message(msg).await?;
+                        // Drain any queued messages quickly without starving the loop
+                        while let Ok(msg) = message_rx.try_recv() {
+                            self.handle_app_message(msg).await?;
                         }
                     }
-                    _ => {
-                        // Ignore other events for now
+                }
+
+                // UI -> App commands
+                maybe_cmd = ui_cmd_rx.recv() => {
+                    if let Some(cmd) = maybe_cmd {
+                        match cmd {
+                            UiToApp::CreateSession { agent_name, respond_to } => {
+                                let _ = self.manager_tx.send(ManagerCmd::CreateSession { agent_name, respond_to });
+                            }
+                            UiToApp::ConnectAgent { agent_name } => {
+                                let _ = self.manager_tx.send(ManagerCmd::ConnectAgent { agent_name });
+                            }
+                            UiToApp::SendMessage { agent_name, session_id, content, respond_to } => {
+                                let _ = self.manager_tx.send(ManagerCmd::SendMessage { agent_name, session_id, content, respond_to });
+                            }
+                        }
+                        // Drain any queued commands
+                        while let Ok(cmd) = ui_cmd_rx.try_recv() {
+                            match cmd {
+                                UiToApp::CreateSession { agent_name, respond_to } => {
+                                    let _ = self.manager_tx.send(ManagerCmd::CreateSession { agent_name, respond_to });
+                                }
+                                UiToApp::ConnectAgent { agent_name } => {
+                                    let _ = self.manager_tx.send(ManagerCmd::ConnectAgent { agent_name });
+                                }
+                                UiToApp::SendMessage { agent_name, session_id, content, respond_to } => {
+                                    let _ = self.manager_tx.send(ManagerCmd::SendMessage { agent_name, session_id, content, respond_to });
+                                }
+                            }
+                        }
                     }
+                }
+
+                // Time-based tick for UI animations and housekeeping
+                _ = tokio::time::sleep_until(next_frame_deadline) => {
+                    // no-op here; ticking handled just below using last_tick check
                 }
             }
 
-            // Handle application messages
-            while let Ok(msg) = message_rx.try_recv() {
-                self.handle_app_message(msg).await?;
-            }
-
-            // Handle at most one UI -> App command per frame to keep UI responsive
-            if let Ok(cmd) = ui_cmd_rx.try_recv() {
-                match cmd {
-                    UiToApp::CreateSession {
-                        agent_name,
-                        respond_to,
-                    } => {
-                        // Offload session creation to background to avoid blocking UI loop
-                        // Forward to manager worker which will respond via oneshot
-                        let _ = self.manager_tx.send(ManagerCmd::CreateSession {
-                            agent_name,
-                            respond_to,
-                        });
-                    }
-                    UiToApp::ConnectAgent { agent_name } => {
-                        let _ = self
-                            .manager_tx
-                            .send(ManagerCmd::ConnectAgent { agent_name });
-                    }
-                    UiToApp::SendMessage {
-                        agent_name,
-                        session_id,
-                        content,
-                        respond_to,
-                    } => {
-                        let _ = self.manager_tx.send(ManagerCmd::SendMessage {
-                            agent_name,
-                            session_id,
-                            content,
-                            respond_to,
-                        });
-                    }
-                }
-            }
-
-            // Tick
+            // Perform periodic tick if due (ensures ticks even under constant events)
             if last_tick.elapsed() >= tick_rate {
-                // Only tick the TUI here; agent manager ticks in its own background task
-                self.tui_manager.tick().await?;
+                self.tui_manager.tick().await?; // manager worker ticks independently
                 last_tick = Instant::now();
+                next_frame_deadline = tokio::time::Instant::now() + tick_rate;
             }
 
-            // Render
+            // Render a single frame in response to any of the above
             terminal.draw(|f| {
                 if let Err(e) = self.render(f) {
                     error!("Render error: {}", e);
@@ -263,9 +275,6 @@ impl App {
             if self.should_quit {
                 break;
             }
-
-            // Yield to other tasks to allow the manager worker to process commands
-            tokio::task::yield_now().await;
         }
 
         // Cleanup
