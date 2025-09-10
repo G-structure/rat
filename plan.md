@@ -609,3 +609,33 @@ Verification
 Next
 - Add `examples/sim_agent.rs` and wire a `--agent-cmd` override in RAT.
 - Land one scenario (happy_path_edit) with plan/tool/diff/permission; then iterate others.
+
+---
+
+Task: ACP Simulator skeleton (happy_path_edit)
+
+Context: Enable offline, deterministic UI iteration without external agents. Start with a minimal scripted agent that speaks ACP over stdio.
+
+Approach: tests-first plan deferred pending build constraints; implement smallest example binary under `examples/` that replies to `initialize`, `session/new`, `session/prompt` and streams `session/update` plan/tool/diff/message for a single scenario. Keep timing deterministic via a simple speed multiplier.
+
+Changes:
+- Added `examples/sim_agent.rs` — a stdio JSON-RPC loop that:
+  - initialize → protocolVersion 1, promptCapabilities { image:true, embeddedContext:true }
+  - session/new → returns `sim-<n>`
+  - session/prompt → streams: plan → tool_call(diff) → tool_call_update(completed) → agent_message_chunk, then responds with `stopReason: end_turn`
+  - session/cancel → flips internal flag; next prompt result reports `cancelled`
+  - CLI flags: `--scenario`, `--speed`, `--seed`, `--loop-run` (loop not yet used)
+
+Verification:
+- Manual: run `cargo run -q --example sim_agent -- --scenario happy_path_edit --speed fast` and observe JSON lines.
+- Next: wire RAT to spawn this simulator via an override to validate TUI updates end-to-end; add insta snapshots with fixed seed/speed.
+
+Remaining:
+- Handle `session/request_permission` round-trip and option outcomes.
+- Add more scenarios (multi_tools, failure_path, cancellation, large_diff, images_and_thoughts, auth_required, commands_update).
+- Pause/step control, jitter, and seeded randomness.
+- Replace manual JSON with `agent-client-protocol::Agent` implementation when feasible.
+
+Next:
+- Add RAT `--agent-cmd` override to spawn custom agent binaries.
+- Extend simulator with permission flow and one additional scenario.

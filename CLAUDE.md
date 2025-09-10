@@ -6,8 +6,12 @@ This repository is Rust-only and expects small, test-first changes with strong a
 - Product: **RAT - Rust Agent Terminal**, ACP client with TUI via `ratatui` and async via `tokio`. [Agent Client Protocol - GitHub](https://github.com/zed-industries/agent-client-protocol)
 - Mode of work: headless, test-driven development with minimal diffs and explicit verification. [nexte.st](https://nexte.st/)
 
+### Critical project memory files (read/write often)
+- `rat/PLAN.md` — the living project plan and progress log. You MUST update this early and often during any task: record scope, approach, diffs, verification, risks, and next actions. Treat it as the project heartbeat.
+- `rat/NOTES.md` — your private scratchpad for long-term memory across runs. Keep hypotheses, decisions, partial thoughts, and breadcrumbs here. It is private to the agent and SHOULD NOT be committed unless explicitly requested.
+
 ## 1) Working agreement for Claude
-1. **Plan → test → code → verify → summarize** for every change. Propose tests first, then ship the smallest diff that turns red to green. [Anthropic - Prompt Best Practices](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/claude-4-best-practices)
+1. **Plan → test → code → verify → summarize** for every change. Propose tests first, then ship the smallest diff that turns red to green. Update `rat/PLAN.md` and `rat/NOTES.md` throughout.
 2. Keep patches at most **150 LOC** per commit. No cross-cutting refactors without explicit instruction. [Anthropic - Claude Code Best Practices](https://www.anthropic.com/engineering/claude-code-best-practices)
 3. If blocked or uncertain, output an **ASK-LIST** with precise questions and stop. [Anthropic - Prompt Overview](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
 4. Never block the TUI loop. Long work must be async. Prefer non-blocking, structured logging. [Anthropic - Claude Code Best Practices](https://www.anthropic.com/engineering/claude-code-best-practices)
@@ -80,6 +84,10 @@ Prefer **integration tests** and typed oracles over brittle string checks. Test 
 <summary>
 - What changed, why, and user-visible behavior
 </summary>
+
+Update logs and memory
+- Append progress, decisions, and next actions to `rat/PLAN.md` (keep it current and useful for humans).
+- Add personal breadcrumbs and details to `rat/NOTES.md` (private continuity across runs).
 #+END_SRC
 [nexte.st](https://nexte.st/)
 
