@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
     println!("Using configuration from: {:?}", config_file);
 
     // Create and run the application
-    let mut app = App::new(config).await?;
+    let mut app = App::new(config, None).await?;
 
     // You could programmatically connect to agents here
     // app.connect_agent("claude-code").await?;

@@ -627,8 +627,11 @@ Changes:
   - CLI flags: `--scenario`, `--speed`, `--seed`, `--loop-run` (loop not yet used)
 
 Verification:
-- Manual: run `cargo run -q --example sim_agent -- --scenario happy_path_edit --speed fast` and observe JSON lines.
-- Next: wire RAT to spawn this simulator via an override to validate TUI updates end-to-end; add insta snapshots with fixed seed/speed.
+- Build: cargo build --locked --all-features (green)
+- Tests:
+  - cargo test --test sim_agent_jsonrpc (passes; validates plan/tool_call/diff/chunks + permission round-trip)
+  - cargo test --test external_adapter_integration (passes; AcpClient → sim via cargo)
+- Manual: `cargo run -q --example sim_agent -- --scenario happy_path_edit --speed fast` shows deterministic stream.
 
 Remaining:
 - Handle `session/request_permission` round-trip and option outcomes.
@@ -637,5 +640,5 @@ Remaining:
 - Replace manual JSON with `agent-client-protocol::Agent` implementation when feasible.
 
 Next:
-- Add RAT `--agent-cmd` override to spawn custom agent binaries.
-- Extend simulator with permission flow and one additional scenario.
+- Add insta snapshots for RAT TUI frames using the simulator (fixed seed/speed).
+- Implement remaining scenarios: multi_tools, cancellation, large_diff, auth_required, commands_update; add pause/step.

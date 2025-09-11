@@ -70,7 +70,7 @@ async fn start_claude_adapter_and_attempt_session() -> Result<()> {
     agents.claude_code.enabled = true;
 
     // Build manager; it will initialize adapters using installer
-    let mut manager = AgentManager::new(agents.clone(), tx.clone()).await?;
+    let mut manager = AgentManager::new(agents.clone(), tx.clone(), None).await?;
 
     // Ensure adapter exists and connect
     manager.connect_agent("claude-code").await?;

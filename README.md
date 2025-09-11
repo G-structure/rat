@@ -55,6 +55,15 @@ rat
 # Start with a specific agent
 rat --agent claude-code
 
+# Point RAT at a custom ACP agent (e.g., the simulator)
+rat \
+  --agent-cmd cargo \
+  --agent-arg run --agent-arg --quiet \
+  --agent-arg --example --agent-arg sim_agent \
+  --agent-arg -- \
+  --agent-arg --scenario --agent-arg happy_path_edit \
+  --agent-arg --speed --agent-arg fast
+
 # Use custom configuration file
 rat --config ~/.config/rat/custom.toml
 

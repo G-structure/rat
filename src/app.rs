@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::acp::{AcpClient, Message, SessionId};
-use crate::adapters::AgentManager;
+use crate::adapters::{AgentManager, ExternalAgentSpec};
 use crate::config::Config;
 use crate::ui::TuiManager;
 
@@ -44,6 +44,7 @@ pub struct App {
     ui_cmd_tx: mpsc::UnboundedSender<UiToApp>,
     manager_tx: mpsc::UnboundedSender<ManagerCmd>,
     manager_rx: Option<mpsc::UnboundedReceiver<ManagerCmd>>,
+    external_override: Option<crate::adapters::ExternalAgentSpec>,
 }
 
 #[derive(Debug, Clone)]
@@ -73,14 +74,20 @@ pub enum AppMessage {
 }
 
 impl App {
-    pub async fn new(config: Config) -> Result<Self> {
+    pub async fn new(config: Config, external: Option<ExternalAgentSpec>) -> Result<Self> {
         info!("Initializing application");
 
         let (message_tx, message_rx) = mpsc::unbounded_channel();
         let (ui_cmd_tx, ui_cmd_rx) = mpsc::unbounded_channel();
         let (manager_tx, manager_rx) = mpsc::unbounded_channel();
 
-        let tui_manager = TuiManager::new(config.ui.clone(), ui_cmd_tx.clone())?;
+        // Determine default agent (external override takes precedence at runtime)
+        let default_agent = external
+            .as_ref()
+            .map(|e| e.name.clone())
+            .unwrap_or_else(|| config.agents.default_agent.clone());
+
+        let tui_manager = TuiManager::new(config.ui.clone(), ui_cmd_tx.clone(), default_agent)?;
 
         Ok(Self {
             config,
@@ -93,14 +100,22 @@ impl App {
             ui_cmd_tx,
             manager_tx,
             manager_rx: Some(manager_rx),
+            external_override: external,
         })
     }
 
     pub async fn connect_agent(&mut self, agent_name: &str) -> Result<()> {
         info!("Connecting to agent: {}", agent_name);
-
+        // Allow connecting to an externally provided agent (via --agent-cmd)
         if !self.config.agents.is_agent_enabled(agent_name) {
-            return Err(anyhow::anyhow!("Agent '{}' is not enabled", agent_name));
+            let allowed_by_external = self
+                .external_override
+                .as_ref()
+                .map(|ext| ext.name == agent_name)
+                .unwrap_or(false);
+            if !allowed_by_external {
+                return Err(anyhow::anyhow!("Agent '{}' is not enabled", agent_name));
+            }
         }
         let _ = self.manager_tx.send(ManagerCmd::ConnectAgent {
             agent_name: agent_name.to_string(),
@@ -147,7 +162,7 @@ impl App {
             .ok_or_else(|| anyhow::anyhow!("Manager receiver already taken"))?;
         let message_tx = self.message_tx.clone();
         let agent_config = self.config.agents.clone();
-        let mut manager = match AgentManager::new(agent_config, message_tx.clone()).await {
+        let mut manager = match AgentManager::new(agent_config, message_tx.clone(), self.external_override.clone()).await {
             Ok(m) => m,
             Err(e) => {
                 let _ = message_tx.send(AppMessage::Error {

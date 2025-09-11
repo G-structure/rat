@@ -29,6 +29,7 @@ pub struct TuiManager {
     error_message: Option<String>,
     show_help: bool,
     ui_tx: mpsc::UnboundedSender<UiToApp>,
+    default_agent: String,
     theme: CyberTheme,
     fx: FxManager<&'static str>,
     last_fx_tick: Instant,
@@ -50,7 +51,11 @@ pub struct Tab {
 }
 
 impl TuiManager {
-    pub fn new(config: UiConfig, ui_tx: mpsc::UnboundedSender<UiToApp>) -> Result<Self> {
+    pub fn new(
+        config: UiConfig,
+        ui_tx: mpsc::UnboundedSender<UiToApp>,
+        default_agent: String,
+    ) -> Result<Self> {
         let startup_duration_ms = config.effects.startup.duration_ms;
         let startup_running = config.effects.enabled && config.effects.startup.enabled;
         Ok(Self {
@@ -62,6 +67,7 @@ impl TuiManager {
             error_message: None,
             show_help: false,
             ui_tx,
+            default_agent,
             theme: CyberTheme::default(),
             fx: FxManager::default(),
             last_fx_tick: Instant::now(),
@@ -466,7 +472,7 @@ impl TuiManager {
 
     pub async fn create_new_session(&mut self) -> Result<()> {
         // Request a real session from the App layer without blocking the UI.
-        let agent_name = "claude-code".to_string();
+        let agent_name = self.default_agent.clone();
         let (tx, rx) = oneshot::channel();
         // Best-effort send; errors surface through AppMessage::Error handling
         let _ = self.ui_tx.send(UiToApp::CreateSession {
@@ -478,7 +484,7 @@ impl TuiManager {
         if let Some(existing_idx) = self
             .tabs
             .iter()
-            .position(|t| t.agent_name == "claude-code" && t.session_id.is_none())
+            .position(|t| t.agent_name == self.default_agent && t.session_id.is_none())
         {
             // Focus the existing pending tab
             for (i, t) in self.tabs.iter_mut().enumerate() {
@@ -487,8 +493,8 @@ impl TuiManager {
             self.active_tab = existing_idx;
         } else {
             let tab = Tab {
-                name: "claude-code (creating)".to_string(),
-                agent_name: "claude-code".to_string(),
+                name: format!("{} (creating)", self.default_agent),
+                agent_name: self.default_agent.clone(),
                 session_id: None,
                 chat_view: ChatView::new(self.config.layout.chat_history_limit),
                 active: true,
@@ -503,7 +509,7 @@ impl TuiManager {
 
         // Provide immediate, non-blocking UI feedback
         self.status_bar
-            .set_agent_status("claude-code".to_string(), "Creating session...".to_string());
+            .set_agent_status(self.default_agent.clone(), "Creating session...".to_string());
 
         // Optionally, we could await rx and use the SessionId to name the tab,
         // but to keep the UI responsive we rely on AppMessage::SessionCreated

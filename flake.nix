@@ -40,6 +40,10 @@
             echo "Installing Wrangler CLI..."
             npm install -g wrangler@latest
           fi
+          if ! comand -v opencode-ai >/dev/null 2>&1; then
+            echo "Installing opencode"
+            npm install -g opencode-ai
+          fi 
         '';
 
         mdbookSetup = import ./nix/mdbook { inherit pkgs system; };

@@ -543,7 +543,7 @@ impl AcpClient {
         // Drain agent stderr in the background to prevent pipe backpressure deadlocks
         {
             let agent_name = self.agent_name.clone();
-            tokio::task::spawn_local(async move {
+            tokio::spawn(async move {
                 use tokio::io::AsyncBufReadExt;
                 let mut reader = BufReader::new(stderr);
                 let mut line = String::new();

@@ -52,7 +52,7 @@ async fn manager_worker_connect_and_create_session() -> Result<()> {
     config.claude_code.enabled = false;
     config.gemini.enabled = false;
 
-    let mut manager = AgentManager::new(config, app_tx).await?;
+    let mut manager = AgentManager::new(config, app_tx, None).await?;
     manager.register_agent(
         "mock".to_string(),
         Box::new(MockAdapter { name: "mock".to_string(), connected: false, sessions: HashMap::new() }),
@@ -103,7 +103,7 @@ async fn tui_create_new_session_emits_command() -> Result<()> {
 
     let ui_config = UiConfig::default();
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut tui = TuiManager::new(ui_config, tx)?;
+    let mut tui = TuiManager::new(ui_config, tx, "claude-code".to_string())?;
 
     // Call and ensure a CreateSession is sent
     tui.create_new_session().await?;

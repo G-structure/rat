@@ -30,6 +30,19 @@ struct Cli {
     #[arg(short, long)]
     agent: Option<String>,
 
+    /// Override agent command (path or program). When set, RAT registers
+    /// an external agent with this command and optional args.
+    #[arg(long)]
+    agent_cmd: Option<String>,
+
+    /// Arguments for --agent-cmd; can be repeated. Hyphenated values allowed.
+    #[arg(long = "agent-arg", allow_hyphen_values = true)]
+    agent_args: Vec<String>,
+
+    /// Name to register the external agent under (default: "sim").
+    #[arg(long)]
+    agent_name: Option<String>,
+
     /// Disable all effects (theme animations, chat sweeps, etc.)
     #[arg(long)]
     no_effects: bool,
@@ -115,9 +128,22 @@ async fn main() -> Result<()> {
     }
 
     // Initialize and run the application
-    let mut app = App::new(config).await?;
+    // Build optional external agent spec from CLI
+    let external = if let Some(cmd) = cli.agent_cmd.clone() {
+        let name = cli.agent_name.clone().unwrap_or_else(|| "sim".to_string());
+        Some(crate::adapters::ExternalAgentSpec {
+            name,
+            path: cmd,
+            args: cli.agent_args.clone(),
+            env: None,
+        })
+    } else {
+        None
+    };
 
-    if let Some(agent_name) = cli.agent {
+    let mut app = App::new(config, external.clone()).await?;
+
+    if let Some(agent_name) = cli.agent.or_else(|| external.as_ref().map(|e| e.name.clone())) {
         info!("Starting with agent: {}", agent_name);
         app.connect_agent(&agent_name).await?;
     }

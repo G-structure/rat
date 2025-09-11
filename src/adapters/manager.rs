@@ -4,7 +4,12 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::time::{timeout, Duration as TokioDuration};
 
-use super::{claude_code::ClaudeCodeAdapter, gemini::GeminiAdapter, AgentAdapter};
+use super::{
+    claude_code::ClaudeCodeAdapter,
+    gemini::GeminiAdapter,
+    external::{ExternalAgentSpec, ExternalCmdAdapter},
+    AgentAdapter,
+};
 use crate::acp::{Message, SessionId};
 use crate::app::AppMessage;
 use crate::config::AgentConfig;
@@ -19,6 +24,7 @@ impl AgentManager {
     pub async fn new(
         config: AgentConfig,
         message_tx: mpsc::UnboundedSender<AppMessage>,
+        external: Option<ExternalAgentSpec>,
     ) -> Result<Self> {
         let mut manager = Self {
             config,
@@ -26,12 +32,19 @@ impl AgentManager {
             message_tx,
         };
 
-        manager.initialize_agents().await?;
+        manager.initialize_agents(external).await?;
         Ok(manager)
     }
 
-    async fn initialize_agents(&mut self) -> Result<()> {
+    async fn initialize_agents(&mut self, external: Option<ExternalAgentSpec>) -> Result<()> {
         info!("Initializing agent adapters");
+
+        // Register external adapter if provided
+        if let Some(spec) = external {
+            let name = spec.name.clone();
+            let adapter = ExternalCmdAdapter::new(spec, self.message_tx.clone());
+            self.agents.insert(name, Box::new(adapter));
+        }
 
         // Initialize Claude Code adapter if enabled
         if self.config.claude_code.enabled {
