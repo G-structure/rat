@@ -45,6 +45,8 @@ async fn main() -> Result<()> {
     let mut active_session: Option<String> = None;
     let mut cancelling: bool = false;
 
+    
+    
     loop {
         line.clear();
         let n = reader.read_line(&mut line).await?;
