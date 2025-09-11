@@ -1,9 +1,12 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
+use agent_client_protocol::{self as acp, Client};
 use clap::{ArgAction, Parser, ValueEnum};
-use serde_json::{json, Value};
-use std::io::Write;
+use std::cell::Cell;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
 
 #[derive(Clone, Debug, ValueEnum)]
 enum Scenario {
@@ -19,7 +22,7 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = Scenario::HappyPathEdit)]
     scenario: Scenario,
 
-    #[arg(long, default_value = "fast")] // slomo|normal|fast|max or numeric multiplier later
+    #[arg(long, default_value = "fast")]
     speed: String,
 
     #[arg(long, default_value_t = 0)]
@@ -29,316 +32,259 @@ struct Cli {
     loop_run: bool,
 }
 
-#[tokio::main]
+struct SimAgent {
+    session_update_tx: mpsc::UnboundedSender<(acp::SessionNotification, oneshot::Sender<()>)>,
+    next_session_id: Cell<u64>,
+    scenario: Scenario,
+    speed_mult: f32,
+    cancelling: Cell<bool>,
+}
+
+impl SimAgent {
+    fn new(
+        tx: mpsc::UnboundedSender<(acp::SessionNotification, oneshot::Sender<()>)>,
+        scenario: Scenario,
+        speed_mult: f32,
+    ) -> Self {
+        Self {
+            session_update_tx: tx,
+            next_session_id: Cell::new(1),
+            scenario,
+            speed_mult,
+            cancelling: Cell::new(false),
+        }
+    }
+
+    fn parse_speed(s: &str) -> f32 {
+        match s {
+            "slomo" => 0.25,
+            "normal" => 1.0,
+            "fast" => 2.0,
+            "max" => 100.0,
+            _ => s.parse::<f32>().unwrap_or(1.0),
+        }
+    }
+
+    async fn sleep_scaled(&self, ms: u64) {
+        let scaled = if self.speed_mult <= 0.0 { ms } else { ((ms as f32) / self.speed_mult) as u64 };
+        if scaled == 0 {
+            tokio::task::yield_now().await;
+        } else {
+            tokio::time::sleep(Duration::from_millis(scaled)).await;
+        }
+    }
+
+    async fn send_update(&self, session_id: &acp::SessionId, update: acp::SessionUpdate) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.session_update_tx
+            .send((acp::SessionNotification { session_id: session_id.clone(), update }, tx))?;
+        // Wait until the IO task forwards the notification to the client
+        rx.await.map_err(|_| anyhow::anyhow!("session notification forwarding dropped"))?;
+        Ok(())
+    }
+
+    async fn run_happy_path(&self, sid: &acp::SessionId) -> Result<()> {
+        // Plan
+        self.send_update(
+            sid,
+            acp::SessionUpdate::Plan(acp::Plan {
+                entries: vec![
+                    acp::PlanEntry { content: "Open file src/lib.rs".into(), priority: acp::PlanEntryPriority::Medium, status: acp::PlanEntryStatus::InProgress },
+                    acp::PlanEntry { content: "Apply small refactor".into(), priority: acp::PlanEntryPriority::Low, status: acp::PlanEntryStatus::Pending },
+                ],
+            }),
+        ).await?;
+        self.sleep_scaled(120).await;
+
+        // Tool call with diff
+        let tool_id = acp::ToolCallId(Arc::from("call_edit_1"));
+        self.send_update(
+            sid,
+            acp::SessionUpdate::ToolCall(acp::ToolCall {
+                id: tool_id.clone(),
+                title: "Edit src/lib.rs".into(),
+                kind: acp::ToolKind::Edit,
+                status: acp::ToolCallStatus::InProgress,
+                content: vec![acp::ToolCallContent::Diff { diff: acp::Diff {
+                    path: PathBuf::from("/workspace/src/lib.rs"),
+                    old_text: None,
+                    new_text: "pub fn greet() -> &'static str {\n    \"hello, world\"\n}\n".into(),
+                }}],
+                locations: vec![acp::ToolCallLocation { path: PathBuf::from("/workspace/src/lib.rs"), line: Some(1) }],
+                raw_input: None,
+                raw_output: None,
+            }),
+        ).await?;
+        self.sleep_scaled(60).await;
+
+        // Complete tool call (skipping permission request for now)
+        self.send_update(
+            sid,
+            acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate {
+                id: tool_id,
+                fields: acp::ToolCallUpdateFields { status: Some(acp::ToolCallStatus::Completed), ..Default::default() },
+            }),
+        ).await?;
+        self.sleep_scaled(80).await;
+
+        // Agent message chunks
+        self.send_update(
+            sid,
+            acp::SessionUpdate::AgentMessageChunk { content: acp::ContentBlock::Text(acp::TextContent { annotations: None, text: "Applied the change to src/lib.rs. ".into() }) },
+        ).await?;
+        self.sleep_scaled(40).await;
+        self.send_update(
+            sid,
+            acp::SessionUpdate::AgentMessageChunk { content: acp::ContentBlock::Text(acp::TextContent { annotations: None, text: "Anything else?".into() }) },
+        ).await?;
+
+        Ok(())
+    }
+
+    async fn run_failure_path(&self, sid: &acp::SessionId) -> Result<()> {
+        let tool_id = acp::ToolCallId(Arc::from("call_fail_1"));
+        self.send_update(
+            sid,
+            acp::SessionUpdate::ToolCall(acp::ToolCall {
+                id: tool_id.clone(),
+                title: "Search project".into(),
+                kind: acp::ToolKind::Search,
+                status: acp::ToolCallStatus::InProgress,
+                content: vec![acp::ToolCallContent::Content { content: acp::ContentBlock::Text(acp::TextContent { annotations: None, text: "Searching...".into() }) }],
+                locations: vec![],
+                raw_input: None,
+                raw_output: None,
+            }),
+        ).await?;
+        self.sleep_scaled(60).await;
+        self.send_update(
+            sid,
+            acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate {
+                id: tool_id,
+                fields: acp::ToolCallUpdateFields {
+                    status: Some(acp::ToolCallStatus::Failed),
+                    content: Some(vec![acp::ToolCallContent::Content { content: acp::ContentBlock::Text(acp::TextContent { annotations: None, text: "No matches found".into() }) }]),
+                    ..Default::default()
+                },
+            }),
+        ).await?;
+        self.sleep_scaled(40).await;
+        self.send_update(
+            sid,
+            acp::SessionUpdate::AgentMessageChunk { content: acp::ContentBlock::Text(acp::TextContent { annotations: None, text: "Search failed; please refine your query.".into() }) },
+        ).await?;
+        Ok(())
+    }
+
+    async fn run_images_and_thoughts(&self, sid: &acp::SessionId) -> Result<()> {
+        self.send_update(
+            sid,
+            acp::SessionUpdate::AgentThoughtChunk { content: acp::ContentBlock::Text(acp::TextContent { annotations: None, text: "Hmm, outlining approach…".into() }) },
+        ).await?;
+        self.sleep_scaled(50).await;
+
+        let img_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAuMB9s8O8d8AAAAASUVORK5CYII=";
+        self.send_update(
+            sid,
+            acp::SessionUpdate::AgentMessageChunk { content: acp::ContentBlock::Image(acp::ImageContent { annotations: None, data: img_data.into(), mime_type: "image/png".into(), uri: None }) },
+        ).await?;
+        self.sleep_scaled(40).await;
+        self.send_update(
+            sid,
+            acp::SessionUpdate::AgentMessageChunk { content: acp::ContentBlock::Text(acp::TextContent { annotations: None, text: "Here\u{2019}s a quick sketch.".into() }) },
+        ).await?;
+        Ok(())
+    }
+
+    async fn run_commands_update(&self, sid: &acp::SessionId) -> Result<()> {
+        // The AvailableCommandsUpdate session update is behind the `unstable` feature in ACP.
+        // For now, just send a standard message chunk to indicate change.
+        self.sleep_scaled(20).await;
+        self.send_update(
+            sid,
+            acp::SessionUpdate::AgentMessageChunk { content: acp::ContentBlock::Text(acp::TextContent { annotations: None, text: "Commands updated.".into() }) },
+        ).await?;
+        Ok(())
+    }
+}
+
+impl acp::Agent for SimAgent {
+    async fn initialize(&self, _arguments: acp::InitializeRequest) -> Result<acp::InitializeResponse, acp::Error> {
+        Ok(acp::InitializeResponse {
+            protocol_version: acp::V1,
+            agent_capabilities: acp::AgentCapabilities {
+                load_session: true,
+                prompt_capabilities: acp::PromptCapabilities { image: true, audio: false, embedded_context: true },
+            },
+            auth_methods: vec![],
+        })
+    }
+
+    async fn authenticate(&self, _arguments: acp::AuthenticateRequest) -> Result<(), acp::Error> {
+        Ok(())
+    }
+
+    async fn new_session(&self, _arguments: acp::NewSessionRequest) -> Result<acp::NewSessionResponse, acp::Error> {
+        let id = self.next_session_id.get();
+        self.next_session_id.set(id + 1);
+        Ok(acp::NewSessionResponse { session_id: acp::SessionId(Arc::from(format!("sim-{id}"))) })
+    }
+
+    async fn load_session(&self, _arguments: acp::LoadSessionRequest) -> Result<(), acp::Error> {
+        // Minimal: do nothing
+        Ok(())
+    }
+
+    async fn prompt(&self, arguments: acp::PromptRequest) -> Result<acp::PromptResponse, acp::Error> {
+        self.cancelling.set(false);
+        match self.scenario {
+            Scenario::HappyPathEdit => self.run_happy_path(&arguments.session_id).await.map_err(|_| acp::Error::internal_error())?,
+            Scenario::FailurePath => self.run_failure_path(&arguments.session_id).await.map_err(|_| acp::Error::internal_error())?,
+            Scenario::ImagesAndThoughts => self.run_images_and_thoughts(&arguments.session_id).await.map_err(|_| acp::Error::internal_error())?,
+            Scenario::CommandsUpdate => self.run_commands_update(&arguments.session_id).await.map_err(|_| acp::Error::internal_error())?,
+        }
+        let stop_reason = if self.cancelling.get() { acp::StopReason::Cancelled } else { acp::StopReason::EndTurn };
+        Ok(acp::PromptResponse { stop_reason })
+    }
+
+    async fn cancel(&self, _args: acp::CancelNotification) -> Result<(), acp::Error> {
+        self.cancelling.set(true);
+        Ok(())
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     env_logger::init();
 
     let cli = Cli::parse();
-    let speed_mult = parse_speed(&cli.speed);
-    let mut stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
+    let speed_mult = SimAgent::parse_speed(&cli.speed);
 
-    let mut reader = BufReader::new(&mut stdin);
-    let mut line = String::new();
+    let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let mut next_session_id: u64 = 1;
-    let mut active_session: Option<String> = None;
-    let mut cancelling: bool = false;
+    let outgoing = tokio::io::stdout().compat_write();
+    let incoming = tokio::io::stdin().compat();
 
-    
-    
-    loop {
-        line.clear();
-        let n = reader.read_line(&mut line).await?;
-        if n == 0 {
-            break;
-        }
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
+    let local_set = tokio::task::LocalSet::new();
+    local_set
+        .run_until(async move {
+            let agent = SimAgent::new(tx, cli.scenario, speed_mult);
+            let (conn, handle_io) = acp::AgentSideConnection::new(agent, outgoing, incoming, |fut| {
+                tokio::task::spawn_local(fut);
+            });
 
-        let v: Value = match serde_json::from_str(trimmed) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        let id = v.get("id").cloned();
-        let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
-        match method {
-            "initialize" => {
-                let resp = json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "protocolVersion": 1,
-                        "agentCapabilities": {
-                            "loadSession": true,
-                            "promptCapabilities": {
-                                "image": true,
-                                "audio": false,
-                                "embeddedContext": true
-                            }
-                        },
-                        "authMethods": []
+            tokio::task::spawn_local(async move {
+                while let Some((session_notification, tx)) = rx.recv().await {
+                    let result = conn.session_notification(session_notification).await;
+                    if let Err(e) = result {
+                        log::error!("{e}");
+                        break;
                     }
-                });
-                write_json(&mut stdout, &resp).await?;
-            }
-            "authenticate" => {
-                let resp = json!({"jsonrpc":"2.0","id": id, "result": Value::Null});
-                write_json(&mut stdout, &resp).await?;
-            }
-            "session/new" => {
-                let sid = format!("sim-{}", next_session_id);
-                next_session_id += 1;
-                active_session = Some(sid.clone());
-                let resp = json!({"jsonrpc":"2.0","id": id, "result": {"sessionId": sid}});
-                write_json(&mut stdout, &resp).await?;
-            }
-            "session/load" => {
-                // Minimal: no history; reply null after a beat
-                sleep_scaled(50, speed_mult).await;
-                let resp = json!({"jsonrpc":"2.0","id": id, "result": Value::Null});
-                write_json(&mut stdout, &resp).await?;
-            }
-            "session/prompt" => {
-                cancelling = false;
-                let Some(sid) = active_session.clone() else {
-                    let err = error_response(id, -32000, "no active session");
-                    write_json(&mut stdout, &err).await?;
-                    continue;
-                };
-                match cli.scenario {
-                    Scenario::HappyPathEdit => {
-                        run_happy_path(&sid, &mut stdout, speed_mult, &mut reader).await?;
-                    }
-                    Scenario::FailurePath => {
-                        run_failure_path(&sid, &mut stdout, speed_mult).await?;
-                    }
-                    Scenario::ImagesAndThoughts => {
-                        run_images_and_thoughts(&sid, &mut stdout, speed_mult).await?;
-                    }
-                    Scenario::CommandsUpdate => {
-                        run_commands_update(&sid, &mut stdout, speed_mult).await?;
-                    }
+                    let _ = tx.send(());
                 }
-                let stop = json!({
-                    "jsonrpc":"2.0","id": id,
-                    "result": {"stopReason": if cancelling {"cancelled"} else {"end_turn"}}
-                });
-                write_json(&mut stdout, &stop).await?;
-            }
-            "session/cancel" => {
-                cancelling = true;
-                // No direct response per ACP; the prompt response will carry cancelled stopReason
-            }
-            _ => {
-                // Unknown or notifications; ignore gracefully
-            }
-        }
-    }
+            });
 
-    Ok(())
-}
-
-fn parse_speed(s: &str) -> f32 {
-    match s {
-        "slomo" => 0.25,
-        "normal" => 1.0,
-        "fast" => 2.0,
-        "max" => 100.0,
-        _ => s.parse::<f32>().unwrap_or(1.0),
-    }
-}
-
-async fn write_json<W: AsyncWriteExt + Unpin>(mut w: W, v: &Value) -> Result<()> {
-    let s = serde_json::to_string(v)?;
-    w.write_all(s.as_bytes()).await?;
-    w.write_all(b"\n").await?;
-    w.flush().await?;
-    Ok(())
-}
-
-fn error_response(id: Option<Value>, code: i64, msg: &str) -> Value {
-    json!({"jsonrpc":"2.0","id": id, "error": {"code": code, "message": msg}})
-}
-
-async fn sleep_scaled(ms: u64, speed: f32) {
-    let scaled = if speed <= 0.0 { ms } else { ((ms as f32) / speed) as u64 };
-    if scaled == 0 {
-        tokio::task::yield_now().await;
-    } else {
-        tokio::time::sleep(Duration::from_millis(scaled)).await;
-    }
-}
-
-async fn send_update(stdout: &mut (impl AsyncWriteExt + Unpin), session_id: &str, update: Value) -> Result<()> {
-    let notif = json!({
-        "jsonrpc":"2.0",
-        "method":"session/update",
-        "params": {
-            "sessionId": session_id,
-            "update": update
-        }
-    });
-    write_json(stdout, &notif).await
-}
-
-async fn run_happy_path(
-    session_id: &str,
-    stdout: &mut (impl AsyncWriteExt + Unpin),
-    speed: f32,
-    reader: &mut BufReader<&mut tokio::io::Stdin>,
-) -> Result<()> {
-    // Plan
-    let plan = json!({
-        "type":"plan",
-        "plan": {
-            "entries": [
-                {"content":"Open file src/lib.rs","priority":"medium","status":"in_progress"},
-                {"content":"Apply small refactor","priority":"low","status":"pending"}
-            ]
-        }
-    });
-    send_update(stdout, session_id, plan).await?;
-    sleep_scaled(120, speed).await;
-
-    // Tool call announce with diff
-    let tool_call_id = "call_edit_1";
-    let diff = json!({
-        "type":"diff",
-        "path":"/workspace/src/lib.rs",
-        "oldText": null,
-        "newText":"pub fn greet() -> &'static str {\n    \"hello, world\"\n}\n"
-    });
-    let tool_call = json!({
-        "type":"tool_call",
-        "toolCall": {
-            "toolCallId": tool_call_id,
-            "title":"Edit src/lib.rs",
-            "kind":"edit",
-            "status":"in_progress",
-            "content":[ {"type":"diff", "path": "/workspace/src/lib.rs", "oldText": null, "newText": "pub fn greet() -> &'static str {\n    \\\"hello, world\\\"\n}\n"} ],
-            "locations":[{"path":"/workspace/src/lib.rs","line":1}]
-        }
-    });
-    send_update(stdout, session_id, tool_call).await?;
-    sleep_scaled(60, speed).await;
-
-    // Request permission from client before completing
-    let perm_req = json!({
-        "jsonrpc":"2.0",
-        "id": 42,
-        "method":"session/request_permission",
-        "params":{
-            "sessionId": session_id,
-            "toolCall": {"toolCallId": tool_call_id},
-            "options":[
-                {"optionId":"allow-once","name":"Allow once","kind":"allow_once"},
-                {"optionId":"reject-once","name":"Reject","kind":"reject_once"}
-            ]
-        }
-    });
-    write_json(&mut *stdout, &perm_req).await?;
-
-    // Wait for a matching response id=42
-    let mut buf = String::new();
-    loop {
-        buf.clear();
-        let n = reader.read_line(&mut buf).await?;
-        if n == 0 { break; }
-        let Ok(v) = serde_json::from_str::<Value>(buf.trim()) else { continue };
-        if v.get("id").and_then(|x| x.as_i64()) == Some(42) {
-            break;
-        }
-    }
-
-    // Tool call complete
-    let tc_update = json!({
-        "type":"tool_call_update",
-        "toolCallUpdate": {"toolCallId": tool_call_id, "status":"completed"}
-    });
-    send_update(stdout, session_id, tc_update).await?;
-    sleep_scaled(80, speed).await;
-
-    // Agent message chunks
-    let chunk1 = json!({"type":"agent_message_chunk","chunk":{"type":"text","text":"Applied the change to src/lib.rs. "}});
-    let chunk2 = json!({"type":"agent_message_chunk","chunk":{"type":"text","text":"Anything else?"}});
-    send_update(stdout, session_id, chunk1).await?;
-    sleep_scaled(40, speed).await;
-    send_update(stdout, session_id, chunk2).await?;
-
-    Ok(())
-}
-
-async fn run_failure_path(
-    session_id: &str,
-    stdout: &mut (impl AsyncWriteExt + Unpin),
-    speed: f32,
-) -> Result<()> {
-    let tool_call_id = "call_fail_1";
-    let tool_call = json!({
-        "type":"tool_call",
-        "toolCall": {
-            "toolCallId": tool_call_id,
-            "title":"Search project",
-            "kind":"search",
-            "status":"in_progress",
-            "content":[ {"type":"content", "content": {"type":"text","text":"Searching..."}} ]
-        }
-    });
-    send_update(stdout, session_id, tool_call).await?;
-    sleep_scaled(60, speed).await;
-    let tc_update = json!({
-        "type":"tool_call_update",
-        "toolCallUpdate": {"toolCallId": tool_call_id, "status":"failed", "content":[{"type":"content","content":{"type":"text","text":"No matches found"}}]}
-    });
-    send_update(stdout, session_id, tc_update).await?;
-    let explain = json!({"type":"agent_message_chunk","chunk":{"type":"text","text":"Search failed; please refine your query."}});
-    sleep_scaled(40, speed).await;
-    send_update(stdout, session_id, explain).await?;
-    Ok(())
-}
-
-async fn run_images_and_thoughts(
-    session_id: &str,
-    stdout: &mut (impl AsyncWriteExt + Unpin),
-    speed: f32,
-) -> Result<()> {
-    let thought1 = json!({"type":"agent_thought_chunk","chunk":{"type":"text","text":"Hmm, outlining approach…"}});
-    send_update(stdout, session_id, thought1).await?;
-    sleep_scaled(50, speed).await;
-    // A tiny 1x1 PNG (transparent) base64 data URL-ish payload; keep it short.
-    let img_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAuMB9s8O8d8AAAAASUVORK5CYII=";
-    let img_chunk = json!({
-        "type":"agent_message_chunk",
-        "chunk": {"type":"image","data": img_data, "mimeType":"image/png"}
-    });
-    send_update(stdout, session_id, img_chunk).await?;
-    sleep_scaled(40, speed).await;
-    let msg = json!({"type":"agent_message_chunk","chunk":{"type":"text","text":"Here’s a quick sketch."}});
-    send_update(stdout, session_id, msg).await?;
-    Ok(())
-}
-
-async fn run_commands_update(
-    session_id: &str,
-    stdout: &mut (impl AsyncWriteExt + Unpin),
-    speed: f32,
-) -> Result<()> {
-    let cmds = json!({
-        "type":"available_commands_update",
-        "availableCommandsUpdate": {
-            "commands": [
-                {"id":"new-session","name":"New Session","description":"Create a new session"},
-                {"id":"cancel-turn","name":"Cancel Turn","description":"Send session/cancel"}
-            ]
-        }
-    });
-    send_update(stdout, session_id, cmds).await?;
-    sleep_scaled(20, speed).await;
-    let msg = json!({"type":"agent_message_chunk","chunk":{"type":"text","text":"Commands updated."}});
-    send_update(stdout, session_id, msg).await?;
-    Ok(())
+            handle_io.await
+        })
+        .await
 }
