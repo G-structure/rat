@@ -362,8 +362,9 @@ impl App {
             } => {
                 info!("Session created for {}: {}", agent_name, session_id.0);
                 // Reflect status so users see immediate feedback in the status bar
+                let session_prefix = &session_id.0[..session_id.0.len().min(8)];
                 self.tui_manager
-                    .set_agent_status(&agent_name, format!("Session {}", &session_id.0[..8]));
+                    .set_agent_status(&agent_name, format!("Session {}", session_prefix));
                 self.tui_manager.add_session(&agent_name, session_id)?;
             }
             AppMessage::Error { error } => {

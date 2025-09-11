@@ -397,7 +397,8 @@ impl TuiManager {
     }
 
     pub fn add_session(&mut self, agent_name: &str, session_id: SessionId) -> Result<()> {
-        let tab_name = format!("{} ({})", agent_name, &session_id.0[..8]);
+        let session_prefix = &session_id.0[..session_id.0.len().min(8)];
+        let tab_name = format!("{} ({})", agent_name, session_prefix);
 
         // If a pending tab exists for this agent, update it instead of creating a new one
         if let Some((idx, t)) = self
