@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::SessionId;
+use crate::utils::diff::DiffGenerator;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
@@ -38,6 +39,9 @@ pub enum MessageContent {
     ToolResult {
         tool_call_id: String,
         result: String,
+    },
+    ToolCallUpdate {
+        update: acp::ToolCallUpdate,
     },
     SessionStatus {
         status: String,
@@ -87,11 +91,18 @@ impl Message {
             acp::SessionUpdate::AgentThoughtChunk { content } => {
                 MessageContent::AgentResponse { content }
             }
-            acp::SessionUpdate::ToolCall(tool_call) => MessageContent::ToolCall {
-                tool_call: ToolCallRequest::from_acp_tool_call(tool_call),
+            acp::SessionUpdate::ToolCall(tool_call) => {
+                // Check if this tool call contains a diff (edit operation)
+                if let Some(edit_proposal) = EditProposal::from_acp_tool_call(&tool_call) {
+                    MessageContent::EditProposed { edit: edit_proposal }
+                } else {
+                    MessageContent::ToolCall {
+                        tool_call: ToolCallRequest::from_acp_tool_call(tool_call),
+                    }
+                }
             },
-            acp::SessionUpdate::ToolCallUpdate(tool_call_update) => MessageContent::SessionStatus {
-                status: format!("Tool call update: {:?}", tool_call_update),
+            acp::SessionUpdate::ToolCallUpdate(tool_call_update) => MessageContent::ToolCallUpdate {
+                update: tool_call_update.clone(),
             },
             acp::SessionUpdate::Plan(plan) => MessageContent::Plan(plan),
             #[cfg(feature = "unstable")]
@@ -126,12 +137,18 @@ impl EditProposal {
         // Look for diff content in the tool call
         for content in &tool_call.content {
             if let acp::ToolCallContent::Diff { diff } = content {
+                let original_content = diff.old_text.clone().unwrap_or_default();
+                let proposed_content = diff.new_text.clone();
+
+                // Generate the actual diff using our diff utility
+                let diff_text = DiffGenerator::generate_diff(&original_content, &proposed_content);
+
                 return Some(Self {
                     id: tool_call.id.0.to_string(),
                     file_path: diff.path.to_string_lossy().to_string(),
-                    original_content: diff.old_text.clone().unwrap_or_default(),
-                    proposed_content: diff.new_text.clone(),
-                    diff: String::new(), // TODO: compute actual diff
+                    original_content,
+                    proposed_content,
+                    diff: diff_text,
                     description: Some(tool_call.title.clone()),
                 });
             }

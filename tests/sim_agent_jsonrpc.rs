@@ -43,7 +43,7 @@ async fn sim_agent_happy_path_jsonrpc() {
 
     // session/new
     line.clear();
-    let new_sess = json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{}});
+    let new_sess = json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}});
     stdin
         .write_all(serde_json::to_string(&new_sess).unwrap().as_bytes())
         .await
@@ -73,12 +73,11 @@ async fn sim_agent_happy_path_jsonrpc() {
     stdin.write_all(b"\n").await.unwrap();
     stdin.flush().await.unwrap();
 
-    // Expect a sequence of updates and a permission request; respond to it
+    // Expect a sequence of updates
     let mut saw_plan = false;
     let mut saw_tool_call = false;
     let mut saw_tc_completed = false;
     let mut saw_agent_chunks = 0;
-    let mut sent_permission_reply = false;
 
     loop {
         line.clear();
@@ -92,28 +91,17 @@ async fn sim_agent_happy_path_jsonrpc() {
                 let Ok(v) = serde_json::from_str::<Value>(trimmed) else { continue };
                 if v.get("method").and_then(|m| m.as_str()) == Some("session/update") {
                     let u = v.get("params").and_then(|p| p.get("update")).unwrap();
-                    match u.get("type").and_then(|t| t.as_str()) {
+                    match u.get("sessionUpdate").and_then(|t| t.as_str()) {
                         Some("plan") => saw_plan = true,
                         Some("tool_call") => saw_tool_call = true,
                         Some("tool_call_update") => {
-                            if u.get("toolCallUpdate").and_then(|x| x.get("status")).and_then(|s| s.as_str()) == Some("completed") {
+                            if u.get("status").and_then(|s| s.as_str()) == Some("completed") {
                                 saw_tc_completed = true;
                             }
                         }
                         Some("agent_message_chunk") => saw_agent_chunks += 1,
                         _ => {}
                     }
-                } else if v.get("method").and_then(|m| m.as_str()) == Some("session/request_permission") {
-                    // Respond selecting the first option
-                    let id = v.get("id").unwrap().clone();
-                    let reply = json!({"jsonrpc":"2.0","id": id, "result": {"outcome":{"outcome":"selected","optionId":"allow-once"}}});
-                    stdin
-                        .write_all(serde_json::to_string(&reply).unwrap().as_bytes())
-                        .await
-                        .unwrap();
-                    stdin.write_all(b"\n").await.unwrap();
-                    stdin.flush().await.unwrap();
-                    sent_permission_reply = true;
                 } else if v.get("id").and_then(|x| x.as_i64()) == Some(3) {
                     // stopReason
                     let stop = v.get("result").and_then(|r| r.get("stopReason")).and_then(|s| s.as_str());
@@ -127,7 +115,6 @@ async fn sim_agent_happy_path_jsonrpc() {
 
     assert!(saw_plan && saw_tool_call && saw_tc_completed);
     assert!(saw_agent_chunks >= 1);
-    assert!(sent_permission_reply);
 
     let _ = child.kill().await;
 }

@@ -197,7 +197,7 @@ Task: Define and scope all UI elements in RAT's TUI that are directly supported 
 
 Context:
 - RAT is an ACP client and must render the full set of ACP streaming updates and agent→client requests.
-- References reviewed: `rat/ACP.md` (local spec), `agent-client-protocol` (schema + Rust client), `claude-code-acp` (real agent emitting plan/tool/diff/availableCommands), and existing RAT TUI scaffolding.
+- References reviewed: `../docs/ACP.md` (local spec), `agent-client-protocol` (schema + Rust client), `claude-code-acp` (real agent emitting plan/tool/diff/availableCommands), and existing RAT TUI scaffolding.
 - Goal: add UI affordances that map 1:1 to ACP features with minimal client‑side invention.
 
 Approach:
@@ -213,11 +213,45 @@ Scope of UI Elements (ACP‑backed):
 - "Thoughts" collapsed by default with a toggle to expand; visually distinct from user‑visible content.
 - Stream-safe: accumulate chunks per turn; show typing indicator while receiving.
 
-2) Agent Plan Panel (session/update: plan)
-- Read‑only task list showing entry content, priority, and status (pending/in_progress/completed).
+2) Agent Plan Messages (session/update: plan)
+- Plans are now displayed as fancy-looking messages within the chat stream instead of a separate panel.
+- Each plan update appears as a multi-line boxed message with ASCII borders, showing:
+  - Header: "┌─ Agent Plan ──────────────────────────┐"
+  - Each task: "│ ⏳ 🔴 High: Task description │" (with status icons and priority indicators)
+  - Footer: "└───────────────────────────────────────┘"
+- Status icons: ⏳ (pending), ⚡ (in_progress), ✅ (completed)
+- Priority indicators: 🔴 (high), 🟡 (medium), 🟢 (low)
+- Content truncation for long task descriptions
 - Replace‑on‑update semantics: each incoming plan replaces the entire list (per spec).
-- Visual cues: status icons, progress bar (% completed), priority color.
-- Navigation: jump between plan and related tool calls/messages in the same turn.
+- Navigation: plans appear inline with other messages in the conversation flow.
+
+3) Tool Call Messages (session/update: tool_call)
+- Tool calls now display as structured, multi-line boxed messages in the chat stream.
+- Format includes:
+  - Header: "┌─ Tool Call ──────────────────────────────┐"
+  - Tool name: "│ 🔧 {tool_name} │"
+  - Parameters preview: "│ 📋 {params} │" (truncated JSON)
+  - Permission status: "│ 🔒 Requires permission │" or "│ ✅ Auto-approved │"
+  - Footer: "└─────────────────────────────────────────┘"
+- Shows tool execution context and permission requirements clearly.
+
+4) Tool Result Messages (session/update: tool_call_update with result)
+- Tool results display as structured boxes showing:
+  - Header: "┌─ Tool Result ────────────────────────────┐"
+  - Result preview: "│ 📄 {preview} │" (truncated output)
+  - Statistics: "│ 📊 {lines} lines, {chars} chars │"
+  - Footer: "└─────────────────────────────────────────┘"
+- Provides quick overview of tool execution outcomes.
+
+5) Code Edit Messages (EditProposed)
+- Code edits appear as formatted diff previews:
+  - Header: "┌─ Code Edit ──────────────────────────────┐"
+  - File path: "│ 📁 {path} │" (truncated for long paths)
+  - Description: "│ 💬 {description} │" (if available)
+  - Diff preview: "│ 🔄 {diff_lines} │" (first few lines)
+  - Statistics: "│ 📊 +{additions} -{deletions} │"
+  - Footer: "└─────────────────────────────────────────┘"
+- Shows file changes with visual diff indicators and change counts.
 
 3) Tool Calls Panel (session/update: tool_call, tool_call_update)
 - Card per tool call with: title, kind (read/edit/delete/move/search/execute/think/fetch/other), status (pending/in_progress/completed/failed).
@@ -349,5 +383,15 @@ Next
 - Add diff preview component reading ToolCallContent:diff.
 - Add minimal commands palette using `availableCommands`.
 - Snapshot tests for the above; land incrementally.
+
+## Progress Update (2025-01-XX)
+- **Plan UI Integration**: Moved agent plan display from separate panel to inline messages within chat stream
+- **Changes Made**:
+  - Removed `PlanView` struct and separate plan rendering logic from `ChatView`
+  - Modified `add_message` to treat plan messages as regular messages
+  - Added `format_plan_content` method to render plans with status icons and priority colors
+  - Updated message formatting to display plans as "Agent Plan:" messages with cyan styling
+- **Verification**: Built successfully, all tests pass, plan messages now appear inline in conversation
+- **Next**: Continue with other UI elements (tool calls, permission dialogs, diff review)
 
 ---

@@ -96,21 +96,21 @@ impl SimAgent {
         ).await?;
         self.sleep_scaled(120).await;
 
-        // Tool call with diff
+        // Tool call with diff - edit existing large file
         let tool_id = acp::ToolCallId(Arc::from("call_edit_1"));
         self.send_update(
             sid,
             acp::SessionUpdate::ToolCall(acp::ToolCall {
                 id: tool_id.clone(),
-                title: "Edit src/lib.rs".into(),
+                title: "Refactor main.rs error handling and add logging".into(),
                 kind: acp::ToolKind::Edit,
                 status: acp::ToolCallStatus::InProgress,
                 content: vec![acp::ToolCallContent::Diff { diff: acp::Diff {
-                    path: PathBuf::from("/workspace/src/lib.rs"),
-                    old_text: None,
-                    new_text: "pub fn greet() -> &'static str {\n    \"hello, world\"\n}\n".into(),
+                    path: PathBuf::from("/workspace/src/main.rs"),
+                    old_text: Some("use std::io;\nuse std::process;\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    println!(\"Starting RAT application...\");\n\n    // Initialize configuration\n    let config = load_config()?;\n\n    // Start the main loop\n    run_app(config)?;\n\n    Ok(())\n}\n\nfn load_config() -> Result<Config, Box<dyn std::error::Error>> {\n    // Simple config loading\n    Ok(Config::default())\n}\n\nfn run_app(config: Config) -> Result<(), Box<dyn std::error::Error>> {\n    println!(\"Running with config: {:?}\", config);\n\n    // Main application logic here\n    println!(\"Application completed successfully\");\n\n    Ok(())\n}\n\n#[derive(Debug)]\nstruct Config {\n    debug: bool,\n    port: u16,\n}".into()),
+                    new_text: "use std::io;\nuse std::process;\nuse log::{info, warn, error};\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    // Initialize logging\n    env_logger::init();\n\n    info!(\"Starting RAT application...\");\n\n    // Initialize configuration with error handling\n    let config = match load_config() {\n        Ok(config) => {\n            info!(\"Configuration loaded successfully\");\n            config\n        },\n        Err(e) => {\n            error!(\"Failed to load configuration: {}\", e);\n            return Err(e.into());\n        }\n    };\n\n    // Start the main loop with proper error handling\n    if let Err(e) = run_app(config) {\n        error!(\"Application failed: {}\", e);\n        process::exit(1);\n    }\n\n    info!(\"Application completed successfully\");\n    Ok(())\n}\n\nfn load_config() -> Result<Config, io::Error> {\n    // Enhanced config loading with validation\n    let config = Config::default();\n\n    // Validate configuration\n    if config.port == 0 {\n        return Err(io::Error::new(io::ErrorKind::InvalidInput, \"Invalid port number\"));\n    }\n\n    Ok(config)\n}\n\nfn run_app(config: Config) -> Result<(), Box<dyn std::error::Error>> {\n    info!(\"Running with config: {:?}\", config);\n\n    // Enhanced application logic with logging\n    if config.debug {\n        warn!(\"Debug mode is enabled - this may impact performance\");\n    }\n\n    // Simulate some work\n    info!(\"Processing application logic...\");\n\n    // Check for any issues\n    if config.port < 1024 {\n        warn!(\"Using privileged port {}, consider using port > 1024\", config.port);\n    }\n\n    info!(\"Application logic completed successfully\");\n    Ok(())\n}\n\n#[derive(Debug)]\nstruct Config {\n    debug: bool,\n    port: u16,\n}\n\nimpl Default for Config {\n    fn default() -> Self {\n        Self {\n            debug: false,\n            port: 8080,\n        }\n    }\n}".into(),
                 }}],
-                locations: vec![acp::ToolCallLocation { path: PathBuf::from("/workspace/src/lib.rs"), line: Some(1) }],
+                locations: vec![acp::ToolCallLocation { path: PathBuf::from("/workspace/src/main.rs"), line: Some(1) }],
                 raw_input: None,
                 raw_output: None,
             }),
@@ -215,6 +215,7 @@ impl acp::Agent for SimAgent {
             agent_capabilities: acp::AgentCapabilities {
                 load_session: true,
                 prompt_capabilities: acp::PromptCapabilities { image: true, audio: false, embedded_context: true },
+                mcp_capabilities: acp::McpCapabilities::default(),
             },
             auth_methods: vec![],
         })
@@ -227,12 +228,12 @@ impl acp::Agent for SimAgent {
     async fn new_session(&self, _arguments: acp::NewSessionRequest) -> Result<acp::NewSessionResponse, acp::Error> {
         let id = self.next_session_id.get();
         self.next_session_id.set(id + 1);
-        Ok(acp::NewSessionResponse { session_id: acp::SessionId(Arc::from(format!("sim-{id}"))) })
+        Ok(acp::NewSessionResponse { session_id: acp::SessionId(Arc::from(format!("sim-{id}"))), modes: None })
     }
 
-    async fn load_session(&self, _arguments: acp::LoadSessionRequest) -> Result<(), acp::Error> {
+    async fn load_session(&self, _arguments: acp::LoadSessionRequest) -> Result<acp::LoadSessionResponse, acp::Error> {
         // Minimal: do nothing
-        Ok(())
+        Ok(acp::LoadSessionResponse { modes: None })
     }
 
     async fn prompt(&self, arguments: acp::PromptRequest) -> Result<acp::PromptResponse, acp::Error> {

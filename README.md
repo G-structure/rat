@@ -61,8 +61,43 @@ rat \
   --agent-arg run --agent-arg --quiet \
   --agent-arg --example --agent-arg sim_agent \
   --agent-arg -- \
-  --agent-arg --scenario --agent-arg happy_path_edit \
+  --agent-arg --scenario --agent-arg happy-path-edit \
   --agent-arg --speed --agent-arg fast
+
+## Simulator Scenarios
+
+The included `sim_agent` example provides several test scenarios to demonstrate different ACP protocol behaviors:
+
+### Available Scenarios
+
+- **`happy-path-edit`** (default): Simulates a successful file edit operation with plan creation, tool execution, and completion messages
+- **`failure-path`**: Demonstrates a failed tool call (search operation) with error handling and user feedback
+- **`images-and-thoughts`**: Shows agent thought processes and image content in responses
+- **`commands-update`**: Illustrates command availability updates (requires `unstable` feature)
+
+### Usage Examples
+
+```bash
+# Happy path edit scenario (default)
+RUST_LOG=trace cargo run -p rat -- -vvv --agent-cmd cargo --agent-arg run --agent-arg --quiet --agent-arg --example --agent-arg sim_agent --agent-arg -- --agent-arg --scenario --agent-arg happy-path-edit --agent-arg --speed --agent-arg fast
+
+# Failure path scenario
+RUST_LOG=trace cargo run -p rat -- -vvv --agent-cmd cargo --agent-arg run --agent-arg --quiet --agent-arg --example --agent-arg sim_agent --agent-arg -- --agent-arg --scenario --agent-arg failure-path --agent-arg --speed --agent-arg fast
+
+# Images and thoughts scenario
+RUST_LOG=trace cargo run -p rat -- -vvv --agent-cmd cargo --agent-arg run --agent-arg --quiet --agent-arg --example --agent-arg sim_agent --agent-arg -- --agent-arg --scenario --agent-arg images-and-thoughts --agent-arg --speed --agent-arg fast
+
+# Commands update scenario
+RUST_LOG=trace cargo run -p rat -- -vvv --agent-cmd cargo --agent-arg run --agent-arg --quiet --agent-arg --example --agent-arg sim_agent --agent-arg -- --agent-arg --scenario --agent-arg commands-update --agent-arg --speed --agent-arg fast
+```
+
+### Speed Options
+
+The simulator supports different speed multipliers:
+- `slomo` (0.25x): Very slow for detailed observation
+- `normal` (1.0x): Standard speed
+- `fast` (2.0x): Accelerated for quick testing
+- `max` (100.0x): Maximum speed for rapid iteration
 
 # Use custom configuration file
 rat --config ~/.config/rat/custom.toml
