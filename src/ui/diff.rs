@@ -31,6 +31,11 @@ impl DiffView {
             return Ok(());
         }
 
+        // Check for minimum area size
+        if area.width < 10 || area.height < 5 {
+            return Ok(()); // Skip rendering if too small
+        }
+
         if self.show_diff_detail {
             self.render_diff_detail(frame, area)
         } else {

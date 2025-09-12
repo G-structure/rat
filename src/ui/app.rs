@@ -79,6 +79,24 @@ impl TuiManager {
     }
 
     pub fn render(&mut self, frame: &mut Frame) -> Result<()> {
+        // Check for minimum terminal size to prevent panics
+        let area = frame.area();
+        if area.width < 20 || area.height < 6 {
+            let error_text = vec![
+                Line::from("Terminal too small!"),
+                Line::from(""),
+                Line::from("Please resize to at least 20x6 characters."),
+                Line::from(""),
+                Line::from(format!("Current size: {}x{}", area.width, area.height)),
+            ];
+            let error = Paragraph::new(error_text)
+                .block(Block::default().title("RAT").borders(Borders::ALL))
+                .alignment(Alignment::Center)
+                .wrap(ratatui::widgets::Wrap { trim: true });
+            frame.render_widget(error, area);
+            return Ok(());
+        }
+
         // Background
         let bg = Block::default().style(self.theme.background_style());
         frame.render_widget(bg, frame.area());
@@ -542,20 +560,32 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 impl TuiManager {
     fn apply_fx(&mut self, frame: &mut Frame) {
+        let area = frame.area();
+
+        // Skip effects if area is too small to prevent panics
+        if area.width < 2 || area.height < 2 {
+            return;
+        }
+
         // Use frame buffer and area for post-processing effects
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(self.last_fx_tick);
         self.last_fx_tick = now;
 
         let elapsed_fx: FxDuration = elapsed.into();
-        let area = frame.area();
         self.fx.process_effects(elapsed_fx, frame.buffer_mut(), area);
     }
 
     fn apply_startup_fx(&mut self, frame: &mut Frame) {
+        let area = frame.area();
+
+        // Skip effects if area is too small to prevent panics
+        if area.width < 2 || area.height < 2 {
+            return;
+        }
+
         // Initialize startup effect once with snapshot of current UI into a buffer
         if self.startup_effect.is_none() {
-            let area = frame.area();
             let target = ref_count(Buffer::empty(area));
             // Snapshot current frame into target
             {
@@ -572,7 +602,6 @@ impl TuiManager {
             let now = Instant::now();
             let elapsed = now.saturating_duration_since(self.last_fx_tick);
             self.last_fx_tick = now;
-            let area = frame.area();
             let mut dur: FxDuration = elapsed.into();
             effect.process(dur, frame.buffer_mut(), area);
             if effect.done() {

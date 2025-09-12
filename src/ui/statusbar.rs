@@ -23,6 +23,11 @@ impl StatusBar {
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
+        // Check for minimum area size
+        if area.width < 5 || area.height < 1 {
+            return Ok(()); // Skip rendering if too small
+        }
+
         let status_text = self.build_status_text();
 
         let paragraph = Paragraph::new(status_text).style(

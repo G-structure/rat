@@ -46,6 +46,11 @@ impl AgentSelector {
             return Ok(());
         }
 
+        // Check for minimum area size
+        if area.width < 20 || area.height < 10 {
+            return Ok(()); // Skip rendering if too small
+        }
+
         // Center the selector popup
         let popup_area = centered_rect(60, 70, area);
         frame.render_widget(Clear, popup_area);

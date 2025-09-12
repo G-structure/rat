@@ -51,6 +51,10 @@ pub fn matrix_rain_morph_with_duration(target: RefCount<Buffer>, duration_ms: u6
     let timer = EffectTimer::from_ms(duration_ms as u32, Interpolation::QuadOut);
 
     fx::effect_fn_buf(RainState::new(Rect::new(0, 0, 1, 1)), timer, move |state, ctx, buf| {
+        // Skip processing if buffer area is too small
+        if buf.area.width < 1 || buf.area.height < 1 {
+            return;
+        }
         // Resize/adapt state
         if state.width != buf.area.width || state.height != buf.area.height || state.cols.len() != buf.area.width as usize {
             *state = RainState::new(buf.area);

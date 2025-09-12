@@ -39,6 +39,14 @@ impl ChatView {
     }
 
 pub fn render(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
+    // Check for minimum area size
+    if area.width < 10 || area.height < 4 {
+        let error = Paragraph::new("Area too small")
+            .block(Block::default().borders(Borders::ALL));
+        frame.render_widget(error, area);
+        return Ok(());
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -132,10 +140,15 @@ pub fn render(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
 
         // Show cursor if in input mode
         if self.input_mode {
-            frame.set_cursor_position(Position {
-                x: area.x + 1 + self.input_buffer.len() as u16,
-                y: area.y + 1,
-            });
+            let cursor_x = area.x + 1 + self.input_buffer.len() as u16;
+            let cursor_y = area.y + 1;
+            // Ensure cursor position is within bounds
+            if cursor_x < frame.area().width && cursor_y < frame.area().height {
+                frame.set_cursor_position(Position {
+                    x: cursor_x,
+                    y: cursor_y,
+                });
+            }
         }
     }
 
@@ -716,13 +729,19 @@ impl ChatView {
             } else {
                 if current.is_empty() {
                     // Very long single word; hard wrap
-                    let mut start = 0usize;
-                    let bytes = word.as_bytes();
-                    while start < bytes.len() {
-                        let end = (start + max_width).min(bytes.len());
-                        let chunk = &word[start..end];
-                        lines.push(Line::from(Span::styled(chunk.to_string(), style)));
-                        start = end;
+                    let chars: Vec<char> = word.chars().collect();
+                    let mut char_start = 0usize;
+                    while char_start < chars.len() {
+                        let char_end = (char_start + max_width).min(chars.len());
+                        let chunk: String = chars[char_start..char_end].iter().collect();
+                        if !chunk.is_empty() {
+                            lines.push(Line::from(Span::styled(chunk, style)));
+                        }
+                        if char_start == char_end {
+                            // Prevent infinite loop when max_width is 0
+                            break;
+                        }
+                        char_start = char_end;
                     }
                 } else {
                     lines.push(Line::from(Span::styled(current.clone(), style)));
@@ -731,17 +750,24 @@ impl ChatView {
                     if word.len() <= max_width {
                         current.push_str(word);
                     } else {
-                        let mut start = 0usize;
-                        let bytes = word.as_bytes();
-                        while start < bytes.len() {
-                            let end = (start + max_width).min(bytes.len());
-                            let chunk = &word[start..end];
-                            if chunk.len() == max_width {
-                                lines.push(Line::from(Span::styled(chunk.to_string(), style)));
-                            } else {
-                                current.push_str(chunk);
+                        // Split long word at character boundaries
+                        let chars: Vec<char> = word.chars().collect();
+                        let mut char_start = 0usize;
+                        while char_start < chars.len() {
+                            let char_end = (char_start + max_width).min(chars.len());
+                            let chunk: String = chars[char_start..char_end].iter().collect();
+                            if !chunk.is_empty() {
+                                if chunk.len() == max_width {
+                                    lines.push(Line::from(Span::styled(chunk, style)));
+                                } else {
+                                    current.push_str(&chunk);
+                                }
                             }
-                            start = end;
+                            if char_start == char_end {
+                                // Prevent infinite loop when max_width is 0
+                                break;
+                            }
+                            char_start = char_end;
                         }
                     }
                 }
