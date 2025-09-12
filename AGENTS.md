@@ -3,20 +3,20 @@
 ## Primary References
 Always consult and maintain these files throughout every task:
 - CLAUDE.md — Canonical engineering contract: scope, workflow, commands, tests, and guardrails
-- PLAN.md — Living plan (rat/PLAN.md): update early and often during work; it is the project heartbeat recording progress, decisions, risks, and next steps
+- PLAN.md — Living plan (rat/docs/PLAN.md): update early and often during work; it is the project heartbeat recording progress, decisions, risks, and next steps
 - README.md — Project overview, quickstart, and user-facing context
-- NOTES.md — Private scratchpad (rat/NOTES.md): personal working memory for continuity across runs; never commit contents unless explicitly requested
+- NOTES.md — Private scratchpad (rat/docs/NOTES.md): personal working memory for continuity across runs; never commit contents unless explicitly requested
 
 ## Instructions for AI Agents (gpt-5)
-1. At the beginning of each task, read CLAUDE.md, PLAN.md (rat/PLAN.md), and README.md in full to align on scope, workflow, and current status. Open NOTES.md (rat/NOTES.md) for context from prior runs.
+1. At the beginning of each task, read CLAUDE.md, PLAN.md (rat/docs/PLAN.md), and README.md in full to align on scope, workflow, and current status. Open NOTES.md (rat/docs/NOTES.md) for context from prior runs.
 2. Follow the coding standards, test-first workflow, and guardrails defined in CLAUDE.md without deviation.
 3. Use only the commands and tools specified in CLAUDE.md for building, testing, linting, snapshots, and mutation testing.
 4. Respect the project structure documented in CLAUDE.md and README.md; keep changes minimal and localized.
-5. Keep PLAN.md (rat/PLAN.md) up to date continuously:
+5. Keep PLAN.md (rat/docs/PLAN.md) up to date continuously:
    - Record what was accomplished, and how it was accomplished (tests-first, minimal diffs, verification steps).
    - List remaining work, risks, and next actions.
    - Update status checkboxes and phase progress as appropriate.
-6. Maintain a private NOTES.md (rat/NOTES.md) for long-term memory and planning:
+6. Maintain a private NOTES.md (rat/docs/NOTES.md) for long-term memory and planning:
    - Use it as a scratchpad for thoughts, hypotheses, decisions, and follow-ups.
    - Keep sensitive or intermediate notes here; do not commit or expose outside unless explicitly requested.
    - Treat NOTES.md as personal state: update during and after runs to preserve context for your future self.
@@ -35,7 +35,7 @@ For each task, append or update entries in PLAN.md with:
 Keep PLAN.md synchronized with reality after each commit or verified change.
 
 ## NOTES.md (Private Working Memory)
-- File: rat/NOTES.md
+- File: rat/docs/NOTES.md
 - Purpose: personal, persistent notes to your future self for continuity across sessions and runs.
 - Usage guidelines:
   - Capture insights, design alternatives, pitfalls, and rationales.
