@@ -26,6 +26,13 @@ async fn main() -> Result<()> {
     let command = installer.get_or_install_claude_code().await?;
     println!("✅ Using command: {:?} {:?}", command.path, command.args);
 
+    // Run login upfront to ensure authenticated before starting agent
+    println!("🔐 Running login to ensure authenticated...");
+    if let Err(e) = run_claude_login(&installer).await {
+        eprintln!("⚠️  Login failed: {}", e);
+        // Continue anyway, as it might already be logged in
+    }
+
     // Try `--version` quickly (non-blocking)
     println!("Testing --version flag (3s timeout)...");
     let mut ver_cmd = Command::new(&command.path);
@@ -108,8 +115,8 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Ensure authenticated by attempting session/new first; only run login on AUTH_REQUIRED
-    let mut session_id = ensure_authenticated(&installer, &mut stdin, &mut stdout_reader).await?;
+    // Create session (assuming authenticated)
+    let mut session_id = ensure_authenticated(&mut stdin, &mut stdout_reader).await?;
     println!("🆔 Using session id: {}", session_id);
 
     // Now run a simple prompt in that session
@@ -123,113 +130,72 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Try to create a session; if we get AUTH_REQUIRED (-32000), run login and retry.
+/// Create a new session, assuming authentication has been handled.
 async fn ensure_authenticated(
-    installer: &AgentInstaller,
     stdin: &mut (impl AsyncWriteExt + Unpin),
     stdout_reader: &mut BufReader<impl tokio::io::AsyncRead + Unpin>,
 ) -> Result<String> {
-    // We'll try up to two attempts: initial, and one retry after login
-    for attempt in 0..2 {
-        let req_id = if attempt == 0 { 2 } else { 3 };
-        let cwd = std::env::current_dir()?.to_string_lossy().to_string();
-        let new_session = json!({
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "method": "session/new",
-            "params": {"mcpServers": [], "cwd": cwd}
-        });
-        let payload = serde_json::to_string(&new_session)?;
-        println!("➡️  session/new (attempt {}): {}", attempt + 1, payload);
-        stdin.write_all(payload.as_bytes()).await?;
-        stdin.write_all(b"\n").await?;
-        stdin.flush().await?;
+    let req_id = 2;
+    let cwd = std::env::current_dir()?.to_string_lossy().to_string();
+    let new_session = json!({
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "method": "session/new",
+        "params": {"mcpServers": [], "cwd": cwd}
+    });
+    let payload = serde_json::to_string(&new_session)?;
+    println!("➡️  session/new: {}", payload);
+    stdin.write_all(payload.as_bytes()).await?;
+    stdin.write_all(b"\n").await?;
+    stdin.flush().await?;
 
-        // Read lines until we see a response with matching id
-        let start = std::time::Instant::now();
-        let max = Duration::from_secs(10);
-        loop {
-            if start.elapsed() > max {
-                return Err(anyhow!("timeout waiting for session/new response"));
-            }
-            let mut line = String::new();
-            match timeout(Duration::from_millis(1500), stdout_reader.read_line(&mut line)).await {
-                Ok(Ok(0)) => return Err(anyhow!("agent closed stdout")),
-                Ok(Ok(_)) => {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    match serde_json::from_str::<Value>(trimmed) {
-                        Ok(v) => {
-                            if let Some(id) = v.get("id").and_then(|x| x.as_u64()) {
-                                if id == req_id {
-                                    // Either result or error
-                                    if let Some(err) = v.get("error") {
-                                        let code = err.get("code").and_then(|c| c.as_i64());
-                                        let msg = err
-                                            .get("message")
-                                            .and_then(|m| m.as_str())
-                                            .unwrap_or("");
-                                        println!("session/new error: code={:?} message={}", code, msg);
-                                        // -32000 is AUTH_REQUIRED per ACP spec
-                                        let auth_required =
-                                            code == Some(-32000)
-                                                || msg.contains("Authentication required")
-                                                || msg.contains("Please run /login");
-                                        if auth_required && attempt == 0 {
-                                            println!("🔐 Auth required; running login flow...");
-                                            if let Err(e) = run_claude_login(installer).await {
-                                                return Err(anyhow!(
-                                                    "login flow failed: {}",
-                                                    e
-                                                ));
-                                            }
-                                            // Break inner loop to retry
-                                            break;
-                                        } else {
-                                            return Err(anyhow!(
-                                                "session/new failed: {}",
-                                                trimmed
-                                            ));
-                                        }
-                                    } else if let Some(result) = v.get("result") {
-                                        if let Some(sid) =
-                                            result.get("sessionId").and_then(|s| s.as_str())
-                                        {
-                                            println!("session/new -> {}", trimmed);
-                                            return Ok(sid.to_string());
-                                        } else {
-                                            return Err(anyhow!(
-                                                "session/new missing sessionId: {}",
-                                                trimmed
-                                            ));
-                                        }
-                                    }
-                                } else {
-                                    // Some other response; print for visibility
-                                    println!("↩️  response: {}", trimmed);
-                                }
-                            } else if v
-                                .get("method")
-                                .and_then(|m| m.as_str())
-                                == Some("session/update")
-                            {
-                                println!("🪄 update: {}", trimmed);
-                            } else {
-                                println!("↪️  other: {}", trimmed);
-                            }
-                        }
-                        Err(_) => println!("raw: {}", trimmed),
-                    }
+    // Read lines until we see a response with matching id
+    let start = std::time::Instant::now();
+    let max = Duration::from_secs(10);
+    loop {
+        if start.elapsed() > max {
+            return Err(anyhow!("timeout waiting for session/new response"));
+        }
+        let mut line = String::new();
+        match timeout(Duration::from_millis(1500), stdout_reader.read_line(&mut line)).await {
+            Ok(Ok(0)) => return Err(anyhow!("agent closed stdout")),
+            Ok(Ok(_)) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
                 }
-                Ok(Err(e)) => return Err(anyhow!("error reading stdout: {}", e)),
-                Err(_) => println!("…waiting for session/new…"),
+                match serde_json::from_str::<Value>(trimmed) {
+                    Ok(v) => {
+                        if let Some(id) = v.get("id").and_then(|x| x.as_u64()) {
+                            if id == req_id {
+                                // Either result or error
+                                if let Some(err) = v.get("error") {
+                                    return Err(anyhow!("session/new failed: {}", trimmed));
+                                } else if let Some(result) = v.get("result") {
+                                    if let Some(sid) = result.get("sessionId").and_then(|s| s.as_str()) {
+                                        println!("session/new -> {}", trimmed);
+                                        return Ok(sid.to_string());
+                                    } else {
+                                        return Err(anyhow!("session/new missing sessionId: {}", trimmed));
+                                    }
+                                }
+                            } else {
+                                // Some other response; print for visibility
+                                println!("↩️  response: {}", trimmed);
+                            }
+                        } else if v.get("method").and_then(|m| m.as_str()) == Some("session/update") {
+                            println!("🪄 update: {}", trimmed);
+                        } else {
+                            println!("↪️  other: {}", trimmed);
+                        }
+                    }
+                    Err(_) => println!("raw: {}", trimmed),
+                }
             }
+            Ok(Err(e)) => return Err(anyhow!("error reading stdout: {}", e)),
+            Err(_) => println!("…waiting for session/new…"),
         }
     }
-
-    Err(anyhow!("unreachable: exhausted login attempts"))
 }
 
 async fn run_claude_login(installer: &AgentInstaller) -> Result<()> {
