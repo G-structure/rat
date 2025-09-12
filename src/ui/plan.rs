@@ -1,8 +1,5 @@
 use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::{Color, Modifier, Style},
-    text::{Line, Span, Spans},
+    prelude::*,
     widgets::{Block, Borders, List, ListItem, ListState},
 };
 
@@ -10,7 +7,7 @@ use crate::acp::{Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus};
 
 #[derive(Clone, Debug)]
 pub struct PlanView {
-    plan: Option<Plan>,
+    pub plan: Option<Plan>,
     state: ListState,
 }
 
@@ -22,9 +19,13 @@ impl PlanView {
         }
     }
 
+    pub fn has_plan(&self) -> bool {
+        self.plan.is_some()
+    }
+
     pub fn set_plan(&mut self, plan: Plan) {
         self.plan = Some(plan);
-        self.state.select(0);
+        self.state.select(Some(0));
     }
 
     pub fn selected(&self) -> Option<usize> {
@@ -63,7 +64,7 @@ impl PlanView {
         }
     }
 
-    pub fn render(&self, area: Rect, buf: &mut Buffer) {
+    pub fn render(&self, area: Rect, f: &mut Frame) {
         if let Some(plan) = &self.plan {
             let items: Vec<ListItem> = plan.entries.iter().enumerate().map(|(i, entry)| {
                 let priority_color = match entry.priority {
@@ -93,24 +94,22 @@ impl PlanView {
                 ListItem::new(line)
             }).collect();
 
-            let list = List::new(items)
-                .block(Block::default().title("Agent Plan").borders(Borders::ALL))
-                .highlight_style(Style::default().bg(Color::Blue))
-                .highlight_symbol(">>");
-
             let mut state = self.state.clone();
             if state.selected().is_none() {
                 state.select(Some(0));
             }
 
-            let list = list.state(&state);
-            list.render(area, buf);
+            let list = List::new(items)
+                .block(Block::default().title("Agent Plan").borders(Borders::ALL))
+                .highlight_style(Style::default().bg(Color::Blue))
+                .highlight_symbol(">>");
+
+            f.render_stateful_widget(list, area, &mut state);
         } else {
             let block = Block::default()
                 .title("Agent Plan")
                 .borders(Borders::ALL);
-            let area = Rect::new(area.x, area.y, area.width, area.height);
-            block.render(area, buf);
+            f.render_widget(block, area);
         }
     }
 }

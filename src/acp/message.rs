@@ -45,6 +45,7 @@ pub enum MessageContent {
     Error {
         error: String,
     },
+    Plan(acp::Plan),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,9 +93,7 @@ impl Message {
             acp::SessionUpdate::ToolCallUpdate(tool_call_update) => MessageContent::SessionStatus {
                 status: format!("Tool call update: {:?}", tool_call_update),
             },
-            acp::SessionUpdate::Plan(plan) => MessageContent::SessionStatus {
-                status: format!("Agent plan: {} entries", plan.entries.len()),
-            },
+            acp::SessionUpdate::Plan(plan) => MessageContent::Plan(plan),
             #[cfg(feature = "unstable")]
             acp::SessionUpdate::AvailableCommandsUpdate { available_commands } => {
                 MessageContent::SessionStatus {

@@ -9,6 +9,7 @@ mod adapters;
 mod app;
 mod config;
 mod effects;
+mod pairing;
 mod ui;
 mod utils;
 
@@ -50,11 +51,20 @@ struct Cli {
     /// Disable startup intro animation (Matrix rain morph)
     #[arg(long)]
     no_intro: bool,
+
+    /// Start pairing mode for hosted UI
+    #[arg(long)]
+    pair: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if cli.pair {
+        crate::pairing::start_pairing().await?;
+        return Ok(());
+    }
 
     // Initialize logging
     let log_level = match cli.verbose {

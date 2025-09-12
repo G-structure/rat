@@ -1,13 +1,10 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+
 use tokio::sync::mpsc;
-use tokio::time::{timeout, Duration};
+use tokio::time::Duration;
 
 use super::{
     agent_installer::{AgentCommand, AgentInstaller},
@@ -15,7 +12,7 @@ use super::{
 };
 use crate::acp::Session;
 use crate::acp::client::LoginCommand;
-use crate::acp::{AcpClient, Message, SessionId};
+use crate::acp::{AcpClient, SessionId};
 use crate::app::AppMessage;
 use crate::config::agent::ClaudeCodeConfig;
 

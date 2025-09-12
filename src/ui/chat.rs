@@ -7,6 +7,7 @@ use ratatui::{
 use std::collections::VecDeque;
 
 use crate::acp::{Message, MessageContent};
+use crate::ui::plan::PlanView;
 
 #[derive(Debug, Clone)]
 pub struct ChatView {
@@ -20,6 +21,7 @@ pub struct ChatView {
     last_total_lines: usize,
     last_visible_lines: usize,
     last_inner_width: usize,
+    plan_view: PlanView,
 }
 
 impl ChatView {
@@ -33,26 +35,43 @@ impl ChatView {
             last_total_lines: 0,
             last_visible_lines: 0,
             last_inner_width: 0,
+            plan_view: PlanView::new(),
         }
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
-        let chunks = Layout::default()
+pub fn render(&mut self, frame: &mut Frame, area: Rect) -> Result<()> {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(3),
+        ])
+        .split(area);
+
+    let content_area = chunks[0];
+    let input_area = chunks[1];
+
+    let has_plan = self.plan_view.plan.is_some();
+    let msg_area = if has_plan {
+        let inner_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(1),    // Messages
-                Constraint::Length(3), // Input
+                Constraint::Length(12),
+                Constraint::Min(1),
             ])
-            .split(area);
+            .split(content_area);
+        let plan_area = inner_chunks[0];
+        self.plan_view.render(plan_area, frame);
+        inner_chunks[1]
+    } else {
+        content_area
+    };
 
-        // Render messages
-        self.render_messages(frame, chunks[0]);
+    self.render_messages(frame, msg_area);
+    self.render_input(frame, input_area);
 
-        // Render input
-        self.render_input(frame, chunks[1]);
-
-        Ok(())
-    }
+    Ok(())
+}
 
     fn render_messages(&mut self, frame: &mut Frame, area: Rect) {
         // Area available for content inside the border
@@ -189,6 +208,11 @@ impl ChatView {
                 error.clone(),
                 Style::default().red(),
             ),
+            MessageContent::Plan(_) => (
+                format!("[{}] Plan: ", timestamp),
+                "".to_string(),
+                Style::default(),
+            ),
         };
 
         self.wrap_styled(format!("{}{}", prefix, body), style, max_width)
@@ -269,28 +293,35 @@ impl ChatView {
     }
 
     pub async fn add_message(&mut self, message: Message) -> Result<()> {
-        // If the user has scrolled up, keep their viewport anchored by
-        // increasing the offset by the number of visual lines added.
-        let mut added_lines = 1usize;
-        if self.last_inner_width > 0 {
-            let tmp_lines = self.format_message_lines(&message, self.last_inner_width);
-            added_lines = tmp_lines.len().max(1);
+        match &message.content {
+            MessageContent::Plan(plan) => {
+                self.plan_view.set_plan(plan.clone());
+                return Ok(());
+            }
+            _ => {
+                // If the user has scrolled up, keep their viewport anchored by
+                // increasing the offset by the number of visual lines added.
+                let mut added_lines = 1usize;
+                if self.last_inner_width > 0 {
+                    let tmp_lines = self.format_message_lines(&message, self.last_inner_width);
+                    added_lines = tmp_lines.len().max(1);
+                }
+
+                self.messages.push_back(message);
+
+                // Keep only the max number of messages
+                while self.messages.len() > self.max_messages {
+                    self.messages.pop_front();
+                }
+
+                // Stick to bottom only if already at bottom; otherwise preserve position
+                if self.scroll_offset > 0 {
+                    self.scroll_offset = self.scroll_offset.saturating_add(added_lines);
+                } else {
+                    self.scroll_offset = 0;
+                }
+            }
         }
-
-        self.messages.push_back(message);
-
-        // Keep only the max number of messages
-        while self.messages.len() > self.max_messages {
-            self.messages.pop_front();
-        }
-
-        // Stick to bottom only if already at bottom; otherwise preserve position
-        if self.scroll_offset > 0 {
-            self.scroll_offset = self.scroll_offset.saturating_add(added_lines);
-        } else {
-            self.scroll_offset = 0;
-        }
-
         Ok(())
     }
 
