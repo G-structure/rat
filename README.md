@@ -153,6 +153,16 @@ animation_speed = 1.0
 typewriter_delay_ms = 50
 ```
 
+### Claude Code Tool Permissions
+
+RAT starts Claude Code with file edit and tool usage enabled by default. It allows both ACP‑bridged FS tools and Claude's built‑in edit tools. You can override the tool configuration via environment variables:
+
+- `RAT_PERMISSION_PROMPT_TOOL`: permission tool id to use (default: `mcp__acp__permission`).
+- `RAT_ALLOWED_TOOLS`: comma‑separated list of allowed tools (default: `mcp__acp__read,mcp__acp__write,Read,Write,Edit,MultiEdit`).
+- `RAT_DISALLOWED_TOOLS`: comma‑separated list of disallowed tools. Leave unset/empty to omit.
+
+These apply to both the TUI‑launched agent and the `--local-ws` bridge.
+
 ### Key Bindings
 
 - `q` - Quit application

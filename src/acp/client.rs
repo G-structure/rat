@@ -475,6 +475,39 @@ pub struct AcpClient {
 }
 
 impl AcpClient {
+    // Build extra CLI args for Claude Code to ensure file edit/tools are enabled.
+    // Defaults allow both ACP-bridged FS tools and Claude's built-in Edit/MultiEdit.
+    // Users can override via env:
+    // - RAT_PERMISSION_PROMPT_TOOL
+    // - RAT_ALLOWED_TOOLS (comma-separated)
+    // - RAT_DISALLOWED_TOOLS (comma-separated; empty to omit flag)
+    fn build_claude_tool_args() -> Vec<String> {
+        let mut args = Vec::new();
+
+        let permission_tool = std::env::var("RAT_PERMISSION_PROMPT_TOOL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "mcp__acp__permission".to_string());
+        args.push("--permission-prompt-tool".to_string());
+        args.push(permission_tool);
+
+        let allowed_default = "mcp__acp__read,mcp__acp__write,Read,Write,Edit,MultiEdit";
+        let allowed = std::env::var("RAT_ALLOWED_TOOLS")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| allowed_default.to_string());
+        args.push("--allowedTools".to_string());
+        args.push(allowed);
+
+        if let Ok(disallowed) = std::env::var("RAT_DISALLOWED_TOOLS") {
+            if !disallowed.trim().is_empty() {
+                args.push("--disallowedTools".to_string());
+                args.push(disallowed);
+            }
+        }
+
+        args
+    }
     pub fn new(
         agent_name: &str,
         command_path: &str,
@@ -507,6 +540,10 @@ impl AcpClient {
         let mut cmd = Command::new(&self.command_path);
         if !self.command_args.is_empty() {
             cmd.args(&self.command_args);
+        }
+        // For Claude Code specifically, append args that enable file edits and tool usage
+        if self.agent_name == "claude-code" {
+            cmd.args(Self::build_claude_tool_args());
         }
         if let Some(env) = &self.command_env {
             cmd.envs(env);
@@ -708,5 +745,61 @@ impl Clone for RatClient {
             agent_name: self.agent_name.clone(),
             message_tx: self.message_tx.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AcpClient;
+
+    fn with_env<T: FnOnce() -> ()>(kvs: &[(&str, &str)], f: T) {
+        // Save old
+        let saved: Vec<(String, Option<String>)> = kvs
+            .iter()
+            .map(|(k, _)| (k.to_string(), std::env::var(k).ok()))
+            .collect();
+        // Set new
+        for (k, v) in kvs.iter() {
+            std::env::set_var(k, v);
+        }
+        f();
+        // Restore
+        for (k, v) in saved.into_iter() {
+            match v {
+                Some(val) => std::env::set_var(k, val),
+                None => std::env::remove_var(k),
+            }
+        }
+    }
+
+    #[test]
+    fn claude_tool_args_default_and_overrides() {
+        // Default case (no env): should include permission tool and allowed list with Edit/MultiEdit
+        std::env::remove_var("RAT_PERMISSION_PROMPT_TOOL");
+        std::env::remove_var("RAT_ALLOWED_TOOLS");
+        std::env::remove_var("RAT_DISALLOWED_TOOLS");
+        let args = AcpClient::build_claude_tool_args();
+        let joined = args.join(" ");
+        assert!(joined.contains("--permission-prompt-tool mcp__acp__permission"));
+        assert!(joined.contains("--allowedTools"));
+        assert!(joined.contains("Edit"));
+        assert!(joined.contains("MultiEdit"));
+        assert!(!joined.contains("--disallowedTools"));
+
+        // Override all via env
+        with_env(
+            &[
+                ("RAT_PERMISSION_PROMPT_TOOL", "custom_perm"),
+                ("RAT_ALLOWED_TOOLS", "Foo,Bar"),
+                ("RAT_DISALLOWED_TOOLS", "Baz"),
+            ],
+            || {
+                let args = AcpClient::build_claude_tool_args();
+                let joined = args.join(" ");
+                assert!(joined.contains("--permission-prompt-tool custom_perm"));
+                assert!(joined.contains("--allowedTools Foo,Bar"));
+                assert!(joined.contains("--disallowedTools Baz"));
+            },
+        );
     }
 }

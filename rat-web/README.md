@@ -29,9 +29,15 @@ Open http://localhost:5173 and:
 - Click Connect (opens `ws://127.0.0.1:8081` with `acp.jsonrpc.v1`)
 - Click “Start Session” (sends `session/new` with `cwd: "."` and `mcpServers: []`)
 - When the session is created, a prompt input appears; type a prompt and click “Send Prompt” (sends `session/prompt`)
+- Left: Commands list and Mode selector (populated from `session/update` if agent supports)
+- Right: Plan panel (status badges) and Terminal output area
+- Permission requests appear as a modal with Allow/Deny buttons (wired UI; ACP response wiring pending SDK integration)
+- Tabs: multiple sessions supported; sessions persist in localStorage and are reloaded via `session/load` on reconnect
 
 Notes:
 - The UI minifies JSON when sending programmatic messages so each frame is a single line (some agents parse line-delimited JSON).
+- This MVP parses `session/update` heuristically to populate plan, commands, modes, and terminal. Once `@zed-industries/agent-client-protocol` is integrated, switch parsing to its typed events.
+- Session IDs are stored in `localStorage` to allow reloading with `session/load` after a browser reload or reconnect.
 
 ## Notes
 - This is a local‑only, unencrypted development path. The hosted relay + Noise flow from `spec_done.md` is not implemented here.

@@ -1,15 +1,28 @@
 :root { --bg:#0b0f14; --fg:#d7e1ee; --muted:#6b7a90; --ok:#6de8a0; --warn:#ffcf6e; --err:#ff7a8a; --acc:#7aa2ff; }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
-body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; height: 100dvh; overflow: hidden; }
+.shell { display:grid; grid-template-rows: auto auto auto 1fr; height: 100dvh; }
+.tabsbar { display:flex; gap:6px; padding:8px 8px; border-bottom:1px solid #111826; align-items:center; background:#0f141b; }
+.topnav { display:none; gap:6px; padding:6px 8px; border-bottom:1px solid #111826; background:#0f141b; }
+.topnav button { background:#14213a; color:#c7d2e8; border:1px solid #1f2a44; border-radius:6px; padding:6px 10px; }
+.topnav button.on { background:#192847; }
+.threecol { display:grid; grid-template-columns: 240px 1fr 280px; height: 100%; min-height: 0; }
+.sidebar-left, .sidebar-right { overflow:auto; }
 .hdr { padding:12px 16px; background:#0f141b; border-bottom:1px solid #111826; display:flex; align-items:center; gap:12px; }
 .hdr h1 { margin:0; font-size:14px; color:#b6c2d6; }
 .spacer { flex: 1 1 auto; }
 button { background:#14213a; color:#c7d2e8; border:1px solid #1f2a44; border-radius:6px; padding:8px 12px; cursor:pointer; }
 button:hover { background:#192847; }
 .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
-.main { display:grid; grid-template-rows: 1fr auto; height: calc(100vh - 49px); }
+.main { display:grid; grid-template-rows: 1fr auto; height: 100%; min-height: 0; }
+.contentArea { overflow: auto; display: flex; flex-direction: column; }
 .log { padding:12px 16px; overflow:auto; white-space:pre-wrap; }
 .input { display:flex; gap:8px; padding:12px 16px; border-top:1px solid #111826; }
 .input textarea { flex:1; min-height:100px; background:#0f141b; color:var(--fg); border:1px solid #1a2130; border-radius:6px; padding:8px; }
 
+@media (max-width: 900px) {
+  .threecol { grid-template-columns: 1fr; }
+  .sidebar-left, .sidebar-right { display: none; }
+  .topnav { display:flex; }
+}

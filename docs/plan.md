@@ -189,6 +189,26 @@ Remaining:
 Next:
 - If desired, add a minimal external web demo showing streaming `session/update` handling against the local bridge.
  
+## 2025‑09‑17 — Web UI permission dialog rejects on “Allow” (investigation)
+
+- Task: Diagnose why clicking Allow in the browser permission dialog results in the agent reporting “User refused permission to run tool”.
+- Context: Running with local WS bridge: `cargo run -p rat -- --local-ws --local-port 8081` and env `RAT_ALLOWED_TOOLS="Read,Write,Edit,MultiEdit"` and `RAT_DISALLOWED_TOOLS="mcp__acp__read,mcp__acp__write"`.
+- Approach: Read local WS bridge and web UI code; trace `session/request_permission` path and env gating for tools. Verify log flow and where the decision is made.
+- Findings:
+  - The web app sends permission responses correctly (`result.outcome.selected.optionId`). Outgoing permission responses aren’t shown in the log console, but they are sent via WS.
+  - In `src/local_ws.rs`, defaults for local web mode are to allow ACP FS tools and disallow built‑ins to gate edits in the browser: `allowedTools=mcp__acp__read,mcp__acp__write`, `disallowedTools=Read,Write,Edit,MultiEdit`.
+  - The provided envs invert this (built‑ins allowed, ACP FS disallowed). Claude Code’s Edit flow still ultimately needs ACP FS (`mcp__acp__write`) to apply edits when used via ACP. With `mcp__acp__write` disallowed, the adapter reports failure, surfaced as “User refused permission to run tool”.
+- Changes: None to code. Recommend env correction or unset to use defaults.
+- Verification:
+  - Run with either no overrides (let defaults apply) or:
+    - `RAT_ALLOWED_TOOLS="mcp__acp__read,mcp__acp__write"`
+    - `RAT_DISALLOWED_TOOLS="Read,Write,Edit,MultiEdit"`
+  - Reproduce: open web UI, Start Session, prompt an edit; click Allow. Expect tool_call_update → completed.
+- Remaining:
+  - Minor DX: add WS log for outgoing permission responses in `rat-web/src/lib/ws.ts` to make client → server responses visible in the log pane.
+- Next:
+  - If desired, I can patch the web UI to log permission responses and add a small status toast on accept/reject.
+
 ## 2025‑09‑17 — Add Local Solid (Vite) Web UI
 
 Task: Provide a minimal browser UI (SolidJS via Vite) that connects to RAT's local WebSocket (`--local-ws`) using `Sec-WebSocket-Protocol: acp.jsonrpc.v1`, with basic send/receive JSON‑RPC.
@@ -220,6 +240,28 @@ Remaining:
 
 Next:
 - If desired, style and evolve into a fuller UI (chat view, editor, permissions) per `spec_done.md` once hosted relay path is implemented.
+
+## 2025‑09‑17 — CT‑WEB UI Elements (Local Mode)
+
+Task: Implement UI elements from `spec_done.md` for the Browser Web UI, scoped to local WebSocket mode (no relay/Noise).
+
+Approach:
+- Add Solid components: Chat, Plan, Terminal, Commands, Mode selector, Permission dialog, Diff view (basic). Wire heuristics for `session/update` parsing.
+- Keep ACP messages via JSON over WS for now; plan to integrate `@zed-industries/agent-client-protocol` when available.
+
+Changes:
+- rat-web/src/components/{ChatView,PlanPanel,TerminalView,CommandsPanel,ModeSelector,PermissionDialog,DiffView}.tsx
+- rat-web/src/state.ts (global signals for UI state)
+- rat-web/src/lib/ws.ts (dispatch updates to store, capture sessionId, modes, commands, terminal)
+- rat-web/src/App.tsx (layout with sidebars, session start, prompt box)
+
+Verification:
+- Manual: connect to local WS, create session, send prompt; observe chat, plan updates (if any), terminal data, and commands/modes when agent provides them.
+
+Remaining:
+- Integrate official ACP TS package and replace heuristic parsing with typed events.
+- Implement permission responses and diff rendering fidelity.
+- Add file browser/editor once file REST endpoints are available or via ACP‑mediated flows.
 
 
 ## CURRENT STATUS SUMMARY (Updated: December 2024)
@@ -475,6 +517,87 @@ Remaining / Risks
 - Some agents omit oldText in diffs; ensure previews remain useful.
 - Images and large content blocks require careful buffer management and truncation policies.
 - Multiple concurrent permission requests must be queued and clearly disambiguated.
+
+## 2025‑09‑17 — Enable Edit/Tools for Claude Code
+
+Task: Ensure Claude Code starts with ability to edit files and use tools; expose overrides.
+
+Context:
+- Logs showed Claude Code spawning with only `mcp__acp__read/write` allowed and `Read/Write/Edit/MultiEdit` disallowed. We want edits and tools enabled out of the box while keeping ACP FS available.
+
+Approach:
+- Small, localized arg injection at process spawn for Claude Code: append `--permission-prompt-tool` and `--allowedTools` by default; allow env overrides.
+- Apply in both ACP client (`rat` TUI) and local WS bridge (`--local-ws`). Tests cover arg builder.
+
+Changes:
+- src/acp/client.rs: add `build_claude_tool_args()` and append args when `agent_name == "claude-code"`; unit test `claude_tool_args_default_and_overrides`.
+- src/local_ws.rs: detect Claude entrypoints and append the same flags for the bridged agent.
+- README.md: document `RAT_PERMISSION_PROMPT_TOOL`, `RAT_ALLOWED_TOOLS`, `RAT_DISALLOWED_TOOLS`.
+
+Verification:
+- Build: `cargo build --locked --all-features`.
+- Tests: `cargo test -q` (unit test validates env overrides; runtime spawn verified manually).
+- Manual run: `RUST_LOG=info cargo run -p rat -- --agent claude-code -v` and observe Claude Code args include permission/tool flags in logs; attempt an edit to confirm FS writes succeed.
+
+Remaining:
+- If upstream adapter changes flag names, consider migrating to a structured config/env it supports; keep our env passthrough.
+- Consider exposing these settings in `config.toml` and mapping to env.
+
+Next:
+- Wire a simple permission UI instead of auto‑approve in ACP client.
+
+## 2025‑09‑17 — Web UI Permission Prompt (Local WS)
+
+Task: Route ACP permission requests to the web UI and send responses.
+
+Context:
+- In local WS mode, the browser is the ACP client. We need a user prompt and to reply to the agent’s JSON‑RPC request.
+
+Approach:
+- Add heuristic handler in `rat-web/src/lib/ws.ts` for `*requestPermission*` methods; capture `id`, `tool`, `reason`, and `options[]`.
+- Store pending requests in state and show `PermissionDialog` with Allow/Deny.
+- Implement `sendPermissionSelected`/`sendPermissionCancelled` to respond via JSON‑RPC.
+
+Changes:
+- rat-web/src/lib/ws.ts: export response helpers; track `pendingPerms`; enqueue permission with `rid` and options.
+- rat-web/src/state.ts: extend `PermissionReq` with `rid` and `options`.
+- rat-web/src/components/PermissionDialog.tsx: wire Allow/Deny buttons to send responses and dequeue.
+
+Verification:
+- Manual: Trigger a tool call that requires permission; see modal; click Allow → verify agent proceeds; click Deny → agent cancels.
+
+Remaining:
+- Once the official ACP TS SDK is used, replace heuristics with typed request/response.
+
+## 2025‑09‑17 — Local WS: Prefer Built‑in Edit/Write
+
+Task: Ensure file creation works from the web UI by preventing ACP FS calls the browser can’t fulfill.
+
+Approach:
+- In `src/local_ws.rs`, when spawning Claude Code for the local WS bridge, default to
+  `--allowedTools Read,Write,Edit,MultiEdit` and `--disallowedTools mcp__acp__read,mcp__acp__write`.
+- Keep env overrides (`RAT_ALLOWED_TOOLS`, `RAT_DISALLOWED_TOOLS`) for advanced cases.
+
+Rationale:
+- The browser cannot write to the local filesystem; forcing ACP FS leads to `fs/write_text_file` requests that never complete. Allowing built‑in tools makes the agent do the write itself.
+
+Follow‑up: Add FS RPC Intercept in Local WS
+- Implemented interception of `fs/write_text_file` and `fs/read_text_file` in `src/local_ws.rs`.
+- When the agent sends these JSON‑RPC requests (which would otherwise be forwarded to the browser), the local bridge now performs the operation on disk and responds directly to the agent, without involving the browser.
+- This ensures file creation works even if the adapter insists on using ACP FS.
+
+## 2025‑09‑17 — Permission Prompts for FS and Terminal (Web Mode)
+
+Task: Prompt in web UI for all sensitive operations and gate execution.
+
+Changes:
+- src/local_ws.rs: Intercept and prompt for
+  - fs/write_text_file (already), fs/read_text_file (read returns immediately), fs/mkdir, fs/delete_file|remove_file, fs/rename|move.
+  - For each, send `session/request_permission` to browser; act only on Allow.
+- rat-web UI already displays the dialog and sends structured responses.
+
+Remaining:
+- Terminal: add prompt for `terminal/execute` and implement non-interactive command execution with captured output and status. For now, terminal methods pass through; we will wire gating + simple execution next.
 
 Next
 - Wire ACP update handlers to TUI state for: plan, tool_call, tool_call_update, available_commands_update.
