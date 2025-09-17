@@ -198,6 +198,41 @@ Task: Define and scope all UI elements in RAT's TUI that are directly supported 
 Context:
 - RAT is an ACP client and must render the full set of ACP streaming updates and agent→client requests.
 - References reviewed: `../docs/ACP.md` (local spec), `agent-client-protocol` (schema + Rust client), `claude-code-acp` (real agent emitting plan/tool/diff/availableCommands), and existing RAT TUI scaffolding.
+
+---
+
+## 2025‑09‑16 — RAT2E/Relay Integration Kickoff
+
+Task: Start implementing RAT2E spec (rat/spec_done.md) across relay and clients.
+
+Context:
+- Align relay with WS upgrade gates: Origin allow‑list, single subprotocol echo, attach token parsing.
+- Establish minimal RAM‑only pairing path: RAT connects with device_code; browser joins via session_id.
+- Provide basic service probes: /health and /version.
+
+Approach:
+- Small, compile‑first diff in `relay` to fix mismatched types and implement spec‑aligned subprotocol parsing and pairing waits.
+- Add unit tests for subprotocol parsing.
+- Defer full Noise/ACP transport and presence metrics; stub hooks only.
+
+Changes:
+- relay/src/websocket.rs: replace placeholder SessionSockets, wire to PairingState::SessionEntry; add strict single‑token subprotocol parser; pairing wait; bidirectional blind relay.
+- relay/src/main.rs: echo single subprotocol pre‑upgrade; add /health and /version endpoints.
+
+Verification:
+- Build relay; unit tests validate parser edge cases; manual WS connect with malformed subprotocol should close 1008 post‑upgrade.
+
+Remaining:
+- Configurable Origin allow‑list (ALLOWED_ORIGINS) and enforcement.
+- Attach‑token generation/validation and TTL/jti cache.
+- Presence snapshot (/v1/presence) with TTL sweeper and tenant scoping.
+- Noise XX handshake and ciphertext‑only relay.
+- Browser UI (claude‑code‑ui) pairing page and WSS connector.
+
+Next:
+- Implement ALLOWED_ORIGINS and close 1008 on mismatch.
+- Add presence store and sweeper.
+- Add Browser UI stub to complete pairing and open WSS with `acp.jsonrpc.v1.stksha256.<b64u>`.
 - Goal: add UI affordances that map 1:1 to ACP features with minimal client‑side invention.
 
 Approach:
@@ -383,6 +418,33 @@ Next
 - Add diff preview component reading ToolCallContent:diff.
 - Add minimal commands palette using `availableCommands`.
 - Snapshot tests for the above; land incrementally.
+
+## 2025‑09‑17 — RAT TUI Implementation Spec
+
+Task: Author a comprehensive `spec_rat.md` that describes the current state of the RAT TUI as implemented.
+
+Context:
+- The TUI comprises `TuiManager`, `ChatView`, `StatusBar`, and popups (Welcome/Help/Error). Additional components (AgentSelector, DiffView, TerminalView, PermissionPrompt) exist and are partially implemented but not fully wired into the main loop.
+- Visual effects are provided by tachyonfx (startup rain morph, ambient neon border and hue drift), guarded for small terminal sizes.
+
+Approach:
+- Read and align with code in `src/ui/**`, `src/app.rs`, `src/main.rs`, `src/config/ui.rs`, `src/effects/**`, and `src/adapters/manager.rs`.
+- Document state machines, rendering layout, keybindings, effects, configuration mapping, CLI flags that impact UI, message flow, and known limitations.
+
+Changes:
+- Added `spec_rat.md` at repo root with detailed sections: Architecture, State Model, Rendering, Input/Keys, Components, Effects, Message Flow, Pairing/TUI suspension, Config mapping, CLI, Logging, Safety, Limitations, Future hooks, and testing notes.
+
+Verification:
+- Manual verification against code strings and behavior (help/welcome copy, tab naming, effect names, min-size guards). No code behavior changed.
+
+Remaining:
+- Wire Agent Selector selection to `UiToApp::ConnectAgent`.
+- Integrate DiffView and PermissionPrompt flows; expose TerminalView via a keybinding.
+- Add snapshot/property tests for ChatView wrapping/scroll invariants and popups.
+
+Next:
+- Implement Agent Selector confirm + status updates.
+- Add minimal DiffView integration for `EditProposed` messages.
 
 ## Progress Update (2025-01-XX)
 - **Plan UI Integration**: Moved agent plan display from separate panel to inline messages within chat stream

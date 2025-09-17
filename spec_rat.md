@@ -1,0 +1,247 @@
+#+BEGIN_SRC text
+#+TITLE: RAT TUI — Implementation Reference Specification
+#+SUBTITLE: Describes current, shipping behavior of the RAT terminal UI
+#+DATE: 2025-09-17
+#+OPTIONS: toc:3 num:t ^:nil
+
+* Status of This Document
+This specification documents the RAT (Rust Agent Terminal) TUI as implemented in this repository at the time of writing. It is descriptive, not prescriptive: it captures actual runtime behavior, data flows, UI affordances, effects, configuration, and known limitations found in the codebase. It aims to be exhaustive for the TUI path and its integration with the application core and adapters.
+
+This document uses plain language (informative) for most sections. Where applicable, it calls out observable contracts that other subsystems may rely on (normative for dependents).
+
+* Scope
+- In scope: terminal UI (ratatui) components, their state machines, rendering, input handling, effect system integration (tachyonfx), configuration mapping, CLI flags affecting UI, logging relevant to the UI, and the message flow between UI and App/AgentManager.
+- Out of scope: full ACP transport and protocol semantics beyond what is surfaced in UI messages; non-TUI subsystems unless they directly affect UI (e.g., pairing mode leaves/enters TUI).
+
+* High-Level Architecture
+- Entry (`src/main.rs`)
+  - Parses CLI options (clap): `--config`, `-v/--verbose`, `--agent`, `--agent-cmd`, repeated `--agent-arg`, `--agent-name`, `--no-effects`, `--no-intro`, `--pair`.
+  - Initializes log file `logs/rat.log` (env_logger with custom format; writes to file only).
+  - Loads `Config` from file or default; applies CLI overrides (`no_effects`, `no_intro`).
+  - Optional external agent spec from `--agent-cmd` is constructed and passed into `App::new`.
+  - If `--agent` or an external name is provided, `App::connect_agent` is invoked before run.
+  - If `--pair` is passed, runs pairing flow (see Pairing) and exits without starting TUI.
+
+- Application core (`src/app.rs`)
+  - Owns `TuiManager` (UI state/rendering) and channels for message passing:
+    - UI→App: `UiToApp::{CreateSession, ConnectAgent, SendMessage}` via `mpsc::UnboundedSender`.
+    - App→UI: `AppMessage::{AgentMessage, AgentConnected, AgentDisconnected, SessionCreated, Error, SuspendTui, ResumeTui, Quit}` via `mpsc::UnboundedSender`.
+  - Spawns a single-threaded AgentManager worker (`manager_worker`) handling agent lifecycle, sessions, and messages.
+  - Input handling: a blocking OS thread reads crossterm events and forwards to the async loop; keys are debounced by kind `Press`.
+  - Main loop: `tokio::select!` over input events, app messages, UI commands, and a ~20 FPS tick (`50ms`). Each loop renders exactly one frame. `should_quit` exits gracefully.
+  - Global keybinding: quit is configurable via `ui.keybindings.quit` (defaults to `q`). Ctrl+C also quits.
+
+- AgentManager (`src/adapters/manager.rs`)
+  - Registers built-in adapters (Claude Code, Gemini) if enabled in config; registers optional external command adapter (from `--agent-cmd`).
+  - Handles `ConnectAgent`, `CreateSession`, `SendMessage` with timeouts and error forwarding to App (which forwards to UI as `AppMessage::Error`).
+  - Forwards inbound agent `Message` back to App (`AppMessage::AgentMessage`).
+
+- TUI (`src/ui`)
+  - Single root manager `TuiManager` coordinates:
+    - Tabbed chat views (one per `(agent, session)`).
+    - Status bar.
+    - Agent selector popup.
+    - Welcome and help popups.
+    - Startup and ambient visual effects via tachyonfx on frame buffers.
+  - Additional components exist but are not yet wired into the main UI flow: `DiffView`, `TerminalView`, `PermissionPrompt`.
+
+* UI State Model
+- Tabs: vector of `Tab { name, agent_name, session_id: Option<SessionId>, chat_view, active, chat_area_ref }`.
+  - At most one `active` tab; index tracked by `active_tab`.
+  - “Pending” tabs may exist with `session_id = None` during session creation; named `"<agent> (creating)"`.
+  - When an `AppMessage::SessionCreated` arrives, the pending tab for that agent (if any) is converted into a real tab; otherwise a new tab is added.
+  - Tab naming for realized sessions: `"<agent> (<first 8 chars of session_id>)"`.
+
+- Chat view per tab: `ChatView`
+  - Holds a bounded `VecDeque<Message>` with `max_messages = ui.layout.chat_history_limit`.
+  - Maintains `input_buffer` and `input_mode` (false until user hits Enter in non-input mode).
+  - Scrolling uses a visual line model: `scroll_offset` counts visual lines from bottom; wrapping is computed per render using cached inner width.
+
+- Status bar: `StatusBar`
+  - Tracks `agent_statuses: HashMap<String,String>`, a `current_message` string, optional `memory_usage` (bytes; Unix-only via `/proc/self/status`), and `connection_count`.
+  - `tick()` updates memory usage periodically.
+
+- Effects: `FxManager<&'static str>` with named unique effects
+  - Startup effect: optional “matrix rain morph” that reveals first rendered UI snapshot over `ui.effects.startup.duration_ms` if both `effects.enabled` and `startup.enabled` are true.
+  - Ambient effects (initialized after startup completes): global hue drift and neon border pulse. Effects are skipped if the frame area is too small to avoid panics.
+
+* Rendering Pipeline
+- Guardrails: All render paths check for minimum `Rect` sizes and early-return or show a centered error to avoid panics on extremely small terminals.
+  - App area min: 20x6 (TuiManager).
+  - Chat view min: width >= 10 and height >= 4.
+  - Permission prompt min: width >= 20 and height >= 10.
+  - Diff view min: width >= 10 and height >= 5.
+
+- Layout (TuiManager)
+  - Vertical split: Tabs (3 rows) | Main content (min 1) | Status bar (1 row).
+  - If no tabs: a centered Welcome panel is shown.
+  - If tabs present: tab strip renders names; active tab’s `chat_view` renders into the middle chunk and its `Rect` is stored in `chat_area_ref` for attention effects.
+  - Status bar renders last.
+  - Popups: error and help overlays are layered with `Clear` + double borders and themed colors.
+
+- Theme (effects/cyberpunk.rs)
+  - Cyberpunk palette with defined colors for crust, surface, text, and accents (pink/cyan/purple), including success/warning.
+  - Title, border, and background styles derived from palette.
+
+- Effects Application
+  - Startup: on first frames, snapshot the composed frame buffer into a `tachyonfx::RefRect` target; `matrix_rain_morph_with_duration` animates rain → reveal over configured duration. When done, clears startup state and enables ambient initialization on next tick.
+  - Ambient: once after startup, registers “global_drift” (foreground hue drift) and “neon_border” (outer border pulse). Every render frame calls `fx.process_effects(elapsed, frame.buffer_mut(), area)`.
+  - Per-message attention: when a message is added to the active tab, a short sweep + glitch burst is applied over the chat area using a dynamic area effect bound to `chat_area_ref`.
+
+* Input and Keybindings
+- Global keys handled in App:
+  - Quit: `ui.keybindings.quit` (default `q`).
+  - Ctrl+C: immediate quit.
+
+- Global keys handled in TuiManager (only when help/error overlays are not visible; see modal behavior below):
+  - `?`: toggle Help popup.
+  - `Esc`: dismiss Help or Error popup; otherwise clears overlays.
+  - Tab / BackTab: cycle next/previous tab (always allowed).
+  - When chat input is NOT active:
+    - `n`: create new session with default agent (non-blocking; shows pending tab and status).
+    - `a`: toggle Agent Selector popup visibility (selector UI currently not wired to actions).
+    - `q`: reserved for quit (TODO in TUI; actual quit is handled in App via `ui.keybindings.quit`).
+
+- Chat view keys (when focused within active tab):
+  - `Enter`: if not in input mode, enter input mode. If in input mode, send message (handled by TuiManager) and exit input mode.
+    - On send: a `Message::UserPrompt` is enqueued locally into the active chat, and `UiToApp::SendMessage { agent_name, session_id, content }` is dispatched (oneshot response is created and dropped; no blocking UI).
+  - `Esc`: if in input mode, clear buffer and exit input mode.
+  - `Char(c)`: append to buffer in input mode.
+  - `Backspace`: remove last char in input mode.
+  - `Up/Down`: when NOT in input mode, scroll by one visual line (increment/decrement `scroll_offset`, bounded by content height).
+
+- Modal behavior:
+  - If Help or Error is visible, any keypress closes the popup and consumes the event.
+
+* Views and Components
+- Welcome Screen
+  - Textual instructions: `n` new session, `a` select agent, `?` help, `q` quit. Encourages pressing `n` when no sessions exist.
+
+- Tabs
+  - Rendered with `ratatui::widgets::Tabs` using inactive/active title styles.
+
+- ChatView (src/ui/chat.rs)
+  - Message formatting:
+    - Timestamp `[HH:MM:SS]` prefix is included in visible text lines.
+    - UserPrompt: `You:` with cyan style; concatenates multiple `ContentBlock::Text` segments with spaces.
+    - AgentResponse and AgentMessageChunk: `Agent:` with green style; uses `content_to_string` for simple text/image label.
+    - ToolCall: renders a boxed summary with tool name, JSON parameters (prettified preview up to ~35 chars), and permission note.
+    - ToolResult: boxed preview of result first ~35 chars and simple stats (line and char counts).
+    - ToolCallUpdate: boxed summary of update status; enumerates messages depending on `ToolCallUpdate`.
+    - Plan: renders an ASCII box titled “Agent Plan” with entries. Each entry includes a status icon (⏳/⚡/✅) and priority icon (🔴/🟡/🟢), abbreviated content, and “High/Medium/Low” label.
+    - EditProposed: special handling; shows a clean header, a separator, then a Neovim-style diff preview using `utils::diff::DiffGenerator` with line types (+/−/context), capped lists, and totals of additions/deletions. If parsing fails, a fallback preview is displayed.
+    - EditAccepted/Rejected: short line with green/red styling and the edit id.
+    - SessionStatus: gray text with status string.
+    - Error: red text with error string.
+  - Wrapping: word-based wrapping into `Line` items, with hard-wrap fallback for long words. Cached inner width is used to estimate visual line counts for scroll anchoring.
+  - Input panel: double border, title changes depending on input mode. Cursor is positioned safely within bounds when visible.
+
+- StatusBar (src/ui/statusbar.rs)
+  - Renders concatenated segments: current message | Agents[name:status, ...] | Connections | Mem | current time `HH:MM:SS`. Styles with a dark background and cyan foreground.
+  - Public setters: `set_agent_status`, `remove_agent`, `set_message`, `set_connection_count`.
+
+- Agent Selector (src/ui/components/agent_selector.rs)
+  - Popup list with status text per agent (🟢 Connected / 🟡 Connecting… / 🔴 Disconnected / ❌ Error: <msg>). Default style uses white text; enabled/disabled styling supported.
+  - Navigation: maintains a `ListState` with selected index; supports `next`/`previous` helpers. Visibility toggled by `TuiManager` on key `a`.
+  - Note: The selector UI is currently not integrated with actions (no key handling in TuiManager to confirm a selection or to issue a `UiToApp::ConnectAgent`).
+
+- DiffView (src/ui/diff.rs)
+  - Popup UI scaffolding for browsing `EditProposal`s, viewing enhanced diffs (hunks with colored lines), and accepting/rejecting. Includes help/status line.
+  - Not currently invoked by `TuiManager`; chat view renders inline diff previews instead.
+
+- TerminalView (src/ui/terminal.rs)
+  - Embedded terminal window scaffold with process management and streaming output via `tokio::process::Command` and channels.
+  - Tracks active processes, renders a header showing count, and a scrollable output list with styled lines by level (Output/Error/Command/System).
+  - Supports `execute_command`, `kill_all_processes`, scroll, visibility toggle. Not wired into TuiManager yet.
+
+- PermissionPrompt (src/ui/permission_prompt.rs)
+  - Popup dialog to present `RequestPermissionRequest` options and keyboard shortcuts (y/n/m) with descriptions (Allow once/always, Reject once/always).
+  - Shows tool call details with an optional content preview (text or diff path).
+  - Handles navigation (↑/↓), Enter (select), Esc (cancel). Not currently invoked by `TuiManager`/App.
+
+* Effects System (tachyonfx)
+- Startup effect (`startup.rs`): Matrix-style digital rain morphs into the initial UI buffer snapshot over a configurable duration (default ~1800 ms). Resizes gracefully; applies themed colors. Uses a per-cell probabilistic reveal function of `alpha` for progressive composition.
+- Ambient effects (`cyberpunk.rs`): global foreground hue drift and a neon outer-border pulse. Per-message attention comprises a sweep-in attention and a short glitch burst over the chat area using area-filtered effects.
+- Safety: all effect processors early-return if the frame area is too small to prevent buffer panics.
+
+* Message Flow and App Integration
+- Creating a session (`n`): `TuiManager::create_new_session` sends `UiToApp::CreateSession { agent_name = default_agent }`. A pending tab appears immediately; status bar shows “Creating session…”. On `AppMessage::SessionCreated`, the pending tab is realized and focused.
+- Sending a chat message (`Enter` in input mode): TuiManager enqueues a `Message::UserPrompt` locally into the active tab and sends `UiToApp::SendMessage { agent_name, session_id, content }` without blocking on the response.
+- Receiving agent messages: App forwards `AppMessage::AgentMessage { agent_name, message }` to TuiManager, which adds to the matching tab’s chat and triggers attention effects.
+- Agent connectivity: App updates status bar on `AgentConnected`/`AgentDisconnected`; session creation updates status to include the short session id.
+- Errors: App forwards errors to TuiManager which displays a modal error popup; any key dismisses it.
+
+* Pairing Mode and TUI Suspension
+- When launched with `--pair`, the program runs `pairing::start_pairing()` instead of starting the TUI.
+- App can receive `AppMessage::SuspendTui` and `ResumeTui` to temporarily disable raw mode and leave the alternate screen when an external UI needs control (best-effort).
+
+* Configuration Mapping (src/config/ui.rs)
+- `UiConfig` fields and defaults:
+  - `theme`: name ("default"), `syntax_highlighting: true`, customizable `agent_colors` (defaults include `claude-code` and `gemini`).
+  - `layout`: `default_layout: "tabbed"`, booleans for status bar/agent selector/session tabs visibility, `sidebar_width: 25`, `terminal_height: 20`, `chat_history_limit: 100`.
+  - `keybindings`: `quit: "q"`, `new_session: "n"`, `switch_agent: "a"`, `accept_edit: "y"`, `reject_edit: "n"`, `toggle_terminal: "t"`, `next_tab: "Tab"`, `prev_tab: "BackTab"`.
+  - `effects`: `enabled: true`, `animation_speed: 1.0`, `typewriter_delay_ms: 50`, `diff_animation: true`, `status_animation: true`, `smooth_scrolling: true`, `startup { enabled: true, duration_ms: 1800 }`.
+  - `editor`: `show_line_numbers: true`, `word_wrap: true`, `tab_size: 4`, `auto_save: false`, `diff_context_lines: 3`.
+- Validation constraints enforced in `UiConfig::validate()`:
+  - Sidebar width in 1..=80; terminal height in 1..=50; chat_history_limit > 0; animation_speed in (0, 5]; tab_size in 1..=16; `default_layout` one of `tabbed|split|dashboard`.
+- Merging: each config section offers `merge_with` to overlay non-default fields and extend maps.
+- CLI overrides applied in `main.rs`: `--no-effects` disables all effects; `--no-intro` disables startup-only effect.
+
+* CLI Options Affecting UI
+- `--agent <name>`: App connects to the named agent on startup (if enabled or provided as an external override) and focuses its session when created.
+- `--agent-cmd <path>` with optional `--agent-arg` and `--agent-name <name>`: registers an external agent executable at runtime under the given name (default `"sim"`); this can be used to run the `sim_agent` example.
+- `--no-effects`: toggles `config.ui.effects.enabled = false`.
+- `--no-intro`: toggles `config.ui.effects.startup.enabled = false`.
+- Logging verbosity `-v/-vv/-vvv` sets default `RUST_LOG` level unless overridden in environment.
+
+* Logging (UI-Relevant)
+- Logs are written to `logs/rat.log` with a one-line format: timestamp level [file:line] [module] - message. UI debug statements include keypresses and app message summaries.
+- TUI rendering errors are logged but do not crash the application; errors in effect processing are guarded by size checks.
+
+* Error Handling and Safety
+- All UI rendering paths check for minimal sizes to avoid index panics.
+- UI→App channel sends are best-effort; failures surface as `AppMessage::Error` through the manager path or are ignored for non-critical UI feedback.
+- App loop drains channels without starving the renderer by using `try_recv()` after a primary `recv()` to drain a small backlog each tick.
+
+* Known Limitations (as of current code)
+- Quit key inside TUI (`'q'`) is marked TODO in `TuiManager` and does nothing; quitting is handled at App-level via `ui.keybindings.quit` and Ctrl+C.
+- Agent Selector popup is not wired to selection or connection actions; it displays only (when toggled with `a`).
+- DiffView, TerminalView, and PermissionPrompt are not integrated into `TuiManager` workflows; ChatView shows inline diff previews for edit proposals, but there is no modal accept/reject flow bound to keys.
+- Tool permissioning is modeled in UI types and TerminalView, but there is no end-to-end ACP-driven permission prompt shown.
+- Memory usage is only available on Unix via `/proc/self/status`; non-Unix builds report `None`.
+- Effects assume ratatui buffer semantics; on extremely small terminals effects are skipped entirely (by design) and UI may appear static.
+
+* Extension Points and Future Integration Hooks
+- Wire Agent Selector: handle Enter to issue `UiToApp::ConnectAgent { agent_name }` and close popup.
+- Integrate DiffView: on receiving `EditProposed`, add proposal to `DiffView` and provide `y/n/d` bindings at the TuiManager layer to accept/reject/view.
+- PermissionPrompt: show prompt when adapters request permission (via ACP); route user choice back through the manager/adapters.
+- TerminalView: expose `toggle_terminal` keybinding; allow agents to stream tool output into the terminal panel.
+- Typewriter and syntax effects: implement in ChatView using `ui.effects.typewriter_delay_ms` and `ui.theme.syntax_highlighting`.
+
+* Test and Verification Notes (Informative)
+- UI snapshot testing can be added via `insta` by rendering `Frame` into buffers and asserting textual snapshots for help/welcome/status line.
+- Property-style checks: scrolling invariants (monotone with added content when scrolled up), input mode toggling idempotence, and safety under small areas.
+- Integration tests: assert that pressing `n` yields `UiToApp::CreateSession`, that `AppMessage::SessionCreated` names and focuses tabs correctly, and that `add_message` triggers attention effects registration (observable via effect manager state or indirect counters).
+
+* File Map (Relevant to TUI)
+- `src/ui/app.rs` — TuiManager, Tab model, layout, popups, key handling, effects integration, session/message wiring.
+- `src/ui/chat.rs` — ChatView: rendering, wrapping, scrolling, message formatting, input handling.
+- `src/ui/statusbar.rs` — StatusBar: status aggregation and rendering, memory updates.
+- `src/ui/components/agent_selector.rs` — Agent selector popup component and helpers.
+- `src/ui/diff.rs` — DiffView scaffold for edit review (not currently wired).
+- `src/ui/permission_prompt.rs` — Permission prompt popup scaffold (not wired).
+- `src/ui/terminal.rs` — Embedded terminal scaffold (not wired).
+- `src/effects/*` — Startup and ambient effect definitions.
+
+* Observability Cheatsheet
+- Enable verbose logs: `RUST_LOG=trace` and `-vvv` to capture keypresses and message routing.
+- Visual verification: run with `--no-intro` to skip startup rain and directly observe ambient effects.
+- Simulated agent: use `--agent-cmd` pointing to the `sim_agent` example (see README for scenarios) to exercise chat/rendering paths.
+
+* Compatibility and Environment
+- Terminal: relies on ratatui/crossterm; supports standard Unicode glyphs (no Nerd Font required). Some glyphs use basic emoji; rendering varies by terminal.
+- OS: memory reporting in status bar is Unix-only. Process spawning in TerminalView expects a Unix-like environment for path/args quoting; Windows behavior unverified.
+
+* End of Document
+#+END_SRC
+
