@@ -1,6 +1,6 @@
 #+BEGIN_SRC text
 #+TITLE: RAT2E Remote Control via Hosted Relay — Software Design Specification
-#+SUBTITLE: Version 1.0.1
+#+SUBTITLE: Version 1.0.3
 #+AUTHOR: RAT2E Working Group
 #+DATE: 2025-09-16
 #+OPTIONS: toc:3 num:t ^:nil
@@ -37,11 +37,12 @@ Topology: Browser UI ↔ Relay (WSS 443) ↔ RAT2E. The relay performs WebSocket
 #+END_SRC
 #+BEGIN_mermaid
 flowchart LR
-  subgraph Browser["Browser Web UI"]
-    BWS["WSS /v1/connect\nSec-WebSocket-Protocol: acp.jsonrpc.v1.stksha256.<b64u>"]
-    NBR["Noise XX Responder (WASM)"]
-    ACPFE["ACP Client Shim\ninitialize / session.load"]
-  end
+   subgraph Browser["Browser Web UI"]
+     BWS["WSS /v1/connect\nSec-WebSocket-Protocol: acp.jsonrpc.v1.stksha256.<b64u>"]
+     NBR["Noise XX Responder (WASM)"]
+     ACPFE["ACP Client\n@zed-industries/agent-client-protocol"]
+     UI["UI Elements\nChat, File Editor, Terminal, Permissions, Commands"]
+   end
   subgraph RAT["RAT2E (Rust)"]
     RWS["WSS /v1/connect (outbound 443)"]
     NRT["Noise XX Initiator"]
@@ -88,6 +89,51 @@ Assume an honest-but-curious relay and untrusted networks. Objectives: confident
 ** ACP Over Tunnel
 - =RAT2E-REQ-020= (CT-WEB, CT-RAT): ACP JSON-RPC MUST be transported unchanged over the encrypted tunnel. [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html)
 - =RAT2E-REQ-021= (CT-WEB): On reconnect, CT-WEB SHOULD call =initialize= then =session/load= to resume deterministically. [ACP session/load](https://agentclientprotocol.com/protocol/session-setup)
+
+** Web UI ACP Implementation
+- =RAT2E-REQ-022= (CT-WEB): The Browser Web UI MUST speak ACP as a client, implementing all ACP messages defined in the TypeScript library at "/Users/luc/projects/vibes/agent-client-protocol". The web UI MUST use the official "@zed-industries/agent-client-protocol" npm package (version 0.3.1-alpha.1 or later) for ACP protocol implementation. [ACP Protocol](https://agentclientprotocol.com/)
+- =RAT2E-REQ-023= (CT-WEB): The Browser Web UI MUST provide UI elements for all ACP message types to enable interactive remote control functionality.
+
+*** ACP Messages Supported by Web UI
+The Browser Web UI MUST support the following ACP messages as defined in the agent-client-protocol TypeScript library:
+
+**** Client-to-Agent Messages (Web UI Sends)
+- =initialize=: Establish connection and negotiate capabilities. UI element: Connection status indicator.
+- =authenticate=: Authenticate with agent if required. UI element: Authentication form/modal.
+- =session/new=: Create new conversation session. UI element: "New Session" button and session creation dialog.
+- =session/load=: Load existing session (if agent supports). UI element: Session selection dropdown/list.
+- =session/prompt=: Send user prompts with content. UI element: Chat input field supporting text, images, and file attachments.
+- =session/cancel=: Cancel ongoing operations. UI element: Cancel button in chat interface.
+- =session/set_mode=: Change the agent's operating mode. UI element: Mode selection dropdown in session interface.
+
+**** Agent-to-Client Messages (Web UI Receives)
+- =session/update=: Real-time session updates. UI elements:
+  - Message display area for text chunks
+  - Progress indicators for tool calls (including switch_mode tool type)
+  - Plan display for execution plans
+  - File diff viewer for code changes
+  - Terminal output display
+  - Available commands list for slash commands
+  - Current mode indicator and mode change notifications
+- =session/request_permission=: Request user permission for tool calls. UI element: Permission dialog with allow/reject options.
+- =fs/read_text_file=: Read file content. UI element: File content viewer/editor.
+- =fs/write_text_file=: Write file content. UI element: File editor with save functionality.
+- =terminal/create=: Create terminal session. UI element: Terminal emulator interface.
+- =terminal/output=: Get terminal output. UI element: Terminal output display area.
+- =terminal/wait_for_exit=: Wait for terminal command completion. UI element: Terminal status indicators.
+- =terminal/kill=: Terminate terminal process. UI element: Terminal kill button.
+- =terminal/release=: Release terminal resources. UI element: Terminal session management.
+
+*** UI Element Requirements
+- =RAT2E-REQ-024= (CT-WEB): The Browser Web UI MUST implement a chat-like interface for =session/prompt= and =session/update= messages, displaying user messages, agent responses, and real-time progress.
+- =RAT2E-REQ-025= (CT-WEB): The Browser Web UI MUST provide file browsing and editing capabilities for =fs/read_text_file= and =fs/write_text_file= operations.
+- =RAT2E-REQ-026= (CT-WEB): The Browser Web UI MUST include permission dialogs for =session/request_permission= with clear options for allowing or denying tool execution.
+- =RAT2E-REQ-027= (CT-WEB): The Browser Web UI MUST support terminal emulation for terminal-related ACP messages, providing command input and output display.
+- =RAT2E-REQ-028= (CT-WEB): The Browser Web UI MUST display execution plans from =session/update= messages with visual indicators for task status (pending, in_progress, completed).
+- =RAT2E-REQ-029= (CT-WEB): The Browser Web UI MUST show tool call progress and results, including file diffs, terminal output, and other tool-generated content.
+- =RAT2E-REQ-030= (CT-WEB): The Browser Web UI MUST display available commands from =session/update= notifications with =available_commands_update=, providing a command palette or slash command interface for users to invoke agent commands.
+- =RAT2E-REQ-031= (CT-WEB): The Browser Web UI MUST support session modes, displaying available modes from =session/new= and =session/load= responses, allowing users to change modes via =session/set_mode=, and updating the UI when receiving =current_mode_update= notifications.
+- =RAT2E-REQ-032= (CT-WEB): The Browser Web UI SHOULD support ACP extensibility features including the =_meta= field for custom data and extension methods starting with underscore (=_=) for custom functionality.
 
 ** Presence
 - =RAT2E-REQ-030= (CT-RAT or CT-WEB): Endpoints MUST emit periodic encrypted presence beats; the relay MAY expose a snapshot via HTTP. [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html)
@@ -179,6 +225,7 @@ In v1, file payloads are visible to the relay process because the browser calls 
 - File REST: REST→RPC mapping, allow-lists, symlink denial, size limits, rate limits. [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html)
 - Backpressure: forced overflow causes 1013 and increments metric; client backoff behavior verified. [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455)
 - Browser key path: IndexedDB eviction simulation and re-pair UX; WebAuthn PRF wrapping path must not expose raw key on failure; CSP with Trusted Types enabled with no violations. [WebAuthn Level 3](https://www.w3.org/TR/webauthn-3/) [MDN CryptoKey](https://developer.mozilla.org/en-US/docs/Web/API/CryptoKey)
+- ACP UI elements: All ACP message types must have corresponding UI elements; chat interface must handle all session/update variants including available_commands_update and current_mode_update; permission dialogs must present all options correctly; file operations must work with proper error handling; terminal interface must support all terminal operations; command palette must display available commands and handle slash command invocation; session modes must be displayed and changeable via UI controls. [ACP Protocol](https://agentclientprotocol.com/)
 
 * Requirements Traceability Matrix (RTM) (Normative)
 | Req ID         | Target     | Verification                                    | Status |
@@ -195,8 +242,19 @@ In v1, file payloads are visible to the relay process because the browser calls 
 | RAT2E-REQ-012  | CT-RELAY   | Token entropy or TTL or jti cache               | Must   |
 | RAT2E-REQ-020  | CT-WEB/RAT | ACP transparency test                           | Must   |
 | RAT2E-REQ-021  | CT-WEB     | Resume determinism integration test             | Should |
-| RAT2E-REQ-030  | CT-WEB/RAT | Presence beats update                           | Must   |
-| RAT2E-REQ-031  | CT-RELAY   | Presence viewer auth and tenant scoping         | Must   |
+| RAT2E-REQ-022  | CT-WEB     | ACP client implementation with all messages     | Must   |
+| RAT2E-REQ-023  | CT-WEB     | UI elements for all ACP message types           | Must   |
+| RAT2E-REQ-024  | CT-WEB     | Chat interface for session messages             | Must   |
+| RAT2E-REQ-025  | CT-WEB     | File browsing and editing capabilities          | Must   |
+| RAT2E-REQ-026  | CT-WEB     | Permission dialogs for tool calls               | Must   |
+| RAT2E-REQ-027  | CT-WEB     | Terminal emulation interface                    | Must   |
+| RAT2E-REQ-028  | CT-WEB     | Execution plan display with status indicators   | Must   |
+| RAT2E-REQ-029  | CT-WEB     | Tool call progress and results display          | Must   |
+| RAT2E-REQ-030  | CT-WEB     | Available commands display and slash commands   | Must   |
+| RAT2E-REQ-031  | CT-WEB     | Session modes support and UI                    | Must   |
+| RAT2E-REQ-032  | CT-WEB     | ACP extensibility features support              | Should |
+| RAT2E-REQ-033  | CT-WEB/RAT | Presence beats update                           | Must   |
+| RAT2E-REQ-034  | CT-RELAY   | Presence viewer auth and tenant scoping         | Must   |
 | RAT2E-REQ-040  | CT-RELAY   | REST limits and rate-limit tests                | Must   |
 | RAT2E-REQ-041  | CT-RAT     | Path allow-list and symlink denial              | Must   |
 | RAT2E-REQ-050  | CT-RELAY   | Queue overflow → 1013                           | Must   |
@@ -207,5 +265,7 @@ In v1, file payloads are visible to the relay process because the browser calls 
 [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html)
 
 * Change Log (Informative)
+- 1.0.3: Updated ACP protocol support to include session modes, extensibility features, and switch_mode tool type; aligned with @zed-industries/agent-client-protocol v0.3.1-alpha.1 changes. [ACP Protocol](https://agentclientprotocol.com/)
+- 1.0.2: Added comprehensive Web UI ACP implementation requirements; specified use of @zed-industries/agent-client-protocol TypeScript library (v0.3.1-alpha.1+); documented all ACP message types with corresponding UI elements; added available commands and session modes feature support; updated system diagram to reflect ACP client implementation. [ACP Protocol](https://agentclientprotocol.com/)
 - 1.0.1: Corrected WS subprotocol proof grammar; added presence authZ; added browser key management requirements; clarified file REST visibility in v1; added testable additions and close code guidance; replaced placeholder citations with authoritative sources. [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) [RFC 7692](https://datatracker.ietf.org/doc/html/rfc7692) [RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119) [RFC 8174](https://www.rfc-editor.org/info/bcp14) [RFC 7322](https://datatracker.ietf.org/doc/html/rfc7322)
 #+END_SRC
