@@ -1,0 +1,15 @@
+:root { --bg:#0b0f14; --fg:#d7e1ee; --muted:#6b7a90; --ok:#6de8a0; --warn:#ffcf6e; --err:#ff7a8a; --acc:#7aa2ff; }
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.hdr { padding:12px 16px; background:#0f141b; border-bottom:1px solid #111826; display:flex; align-items:center; gap:12px; }
+.hdr h1 { margin:0; font-size:14px; color:#b6c2d6; }
+.spacer { flex: 1 1 auto; }
+button { background:#14213a; color:#c7d2e8; border:1px solid #1f2a44; border-radius:6px; padding:8px 12px; cursor:pointer; }
+button:hover { background:#192847; }
+.dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+.main { display:grid; grid-template-rows: 1fr auto; height: calc(100vh - 49px); }
+.log { padding:12px 16px; overflow:auto; white-space:pre-wrap; }
+.input { display:flex; gap:8px; padding:12px 16px; border-top:1px solid #111826; }
+.input textarea { flex:1; min-height:100px; background:#0f141b; color:var(--fg); border:1px solid #1a2130; border-radius:6px; padding:8px; }
+

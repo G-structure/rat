@@ -95,7 +95,7 @@ Assume an honest-but-curious relay and untrusted networks. Objectives: confident
 - =RAT2E-REQ-023= (CT-WEB): The Browser Web UI MUST provide UI elements for all ACP message types to enable interactive remote control functionality.
 
 *** ACP Messages Supported by Web UI
-The Browser Web UI MUST support the following ACP messages as defined in the agent-client-protocol TypeScript library:
+The Browser Web UI MUST support the following ACP messages as defined in the official @zed-industries/agent-client-protocol npm package (version 0.3.1-alpha.1 or later):
 
 **** Client-to-Agent Messages (Web UI Sends)
 - =initialize=: Establish connection and negotiate capabilities. UI element: Connection status indicator.

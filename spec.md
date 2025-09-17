@@ -150,13 +150,13 @@ Origin: https://ui.example.com
 - Startup: pair/start, display code; idle presence via short-poll or long-poll; on attach trigger: WS connect (initiator), Noise handshake, then run ACP loop. [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628)
 
 ## 6) REST Endpoints to Keep (thin FS layer)
-- Keep:  
-  `GET /api/files?path=dir` (list),  
-  `GET /api/file-content?path=path` (small reads),  
-  `POST /api/save-file` (writes),  
-  `GET /api/markdown-files?path=dir` (filter),  
+- Keep:
+  `GET /api/files?path=dir` (list),
+  `GET /api/file-content?path=path` (small reads),
+  `POST /api/save-file` (writes),
+  `GET /api/markdown-files?path=dir` (filter),
   `POST /api/markdown-content` (batch reads). [HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110)
-- Add (recommended):  
+- Add (recommended):
   `POST /api/upload-file` (multipart), `GET /api/download?path=...` (stream), `POST /api/move-file`, `DELETE /api/file`, `GET /api/file-stat`, `GET /api/search?path=&q=`. [RFC 7578](https://www.rfc-editor.org/rfc/rfc7578)
 
 ## 7) State Machines (resilience & scale)
@@ -209,10 +209,10 @@ Server MUST echo `Sec-WebSocket-Protocol: acp.jsonrpc.v1` in 101 response and en
 - On reconnect, Browser: `initialize` → check `agentCapabilities.loadSession` → `session/load { sessionId }` → handle streaming `session/update` until result. [ACP Overview](https://agentclientprotocol.com/overview/introduction)
 
 ## 9) Relay Data Model (in-mem)
-- `user_codes`: user_code → { device_code, exp_ts }  
-- `devices`: device_code → { rat_pubkey, caps, exp_ts }  
-- `sessions`: session_id → { device_code, token, created_ts, rat_tx?, web_tx? }  
-- `pending_rat`: device_code → rat_tx (pre-browser attach)  
+- `user_codes`: user_code → { device_code, exp_ts }
+- `devices`: device_code → { rat_pubkey, caps, exp_ts }
+- `sessions`: session_id → { device_code, token, created_ts, rat_tx?, web_tx? }
+- `pending_rat`: device_code → rat_tx (pre-browser attach)
 Sweeper drops expired rows; metrics count active sessions, WS, bytes. [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628)
 
 ## 10) Security Controls

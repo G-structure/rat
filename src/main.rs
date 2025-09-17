@@ -12,6 +12,7 @@ mod effects;
 mod pairing;
 mod ui;
 mod utils;
+mod local_ws;
 
 use app::App;
 use config::Config;
@@ -55,6 +56,14 @@ struct Cli {
     /// Start pairing mode for hosted UI
     #[arg(long)]
     pair: bool,
+
+    /// Start local WebSocket server for direct connections (development mode)
+    #[arg(long)]
+    local_ws: bool,
+
+    /// Port for local WebSocket server (default: 8081)
+    #[arg(long, default_value = "8081")]
+    local_port: u16,
 }
 
 #[tokio::main]
@@ -63,6 +72,11 @@ async fn main() -> Result<()> {
 
     if cli.pair {
         crate::pairing::start_pairing().await?;
+        return Ok(());
+    }
+
+    if cli.local_ws {
+        crate::local_ws::start_local_ws_server(cli.local_port).await?;
         return Ok(());
     }
 

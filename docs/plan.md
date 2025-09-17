@@ -158,6 +158,70 @@ crossterm = "0.29"
 
 ---
 
+## 2025‑09‑17 — Local WS ACP Testing Support
+
+Task: Enable ACP testing over local WebSocket without wscat and document usage for websocat, Node, and browser clients.
+
+Context:
+- RAT exposes a dev WS bridge (`--local-ws`) for direct ACP JSON‑RPC testing. Browsers and some clients require subprotocol negotiation (Sec‑WebSocket‑Protocol) for correctness.
+
+Approach:
+- Minimal code change to echo `acp.jsonrpc.v1` during WS handshake via `accept_hdr_async`.
+- Add README instructions covering websocat and a one‑liner Node `ws` client, plus browser flow notes.
+
+Changes:
+- src/local_ws.rs: switch to `accept_hdr_async` and echo `Sec-WebSocket-Protocol: acp.jsonrpc.v1` when requested.
+- README.md: new section “ACP over Local WebSocket (Dev Testing)” with usage for websocat and Node, pitfalls, and browser flow guidance.
+- Tests: added `#[tokio::test]`s in `src/local_ws.rs` to validate
+  - WS handshake echoes `acp.jsonrpc.v1`
+  - Echo mode accepts ACP-shaped Text frames and returns echo wrapper containing the original JSON
+
+Verification:
+- Manual: Launch `RUST_LOG=trace cargo run -p rat -- --local-ws --local-port 8889`.
+- Connect with Node `ws` using subprotocol list `["acp.jsonrpc.v1"]`; observe successful handshake and ACP round‑trip (initialize→newSession→prompt).
+- Connect with websocat (`websocat -t ws://localhost:8889`) and paste JSON‑RPC lines; observe agent responses.
+- Automated: `cargo test -q` or `cargo nextest run` locally. Note: CI sandbox here cannot link on macOS due to `cc` segfault, but tests compile in a normal toolchain.
+
+Remaining:
+- Optional: Add an integration test that exercises WS handshake with subprotocol assertion (requires a client harness).
+- Optional: Ship a small web demo page in a separate repo (keeps this repo Rust‑only).
+
+Next:
+- If desired, add a minimal external web demo showing streaming `session/update` handling against the local bridge.
+ 
+## 2025‑09‑17 — Add Local Solid (Vite) Web UI
+
+Task: Provide a minimal browser UI (SolidJS via Vite) that connects to RAT's local WebSocket (`--local-ws`) using `Sec-WebSocket-Protocol: acp.jsonrpc.v1`, with basic send/receive JSON‑RPC.
+
+Context:
+- Developer requested a SolidJS/Vite app in-repo (folder `rat/rat-web`), overriding CLAUDE.md Rust‑only constraint for this subfolder.
+- Only the local websockets mode is required; hosted relay + Noise is out of scope for this task.
+
+Approach:
+- Small, isolated scaffold under `rat-web/` with no coupling to Rust code.
+- Simple log console, Connect/Disconnect, auto `initialize` on connect, text area to send arbitrary JSON‑RPC.
+
+Changes:
+- Added `rat-web/` with Vite+Solid scaffold:
+  - `package.json`, `vite.config.ts`, `tsconfig.json`, `index.html`
+  - `src/main.tsx`, `src/App.tsx`, `src/lib/ws.ts`, `src/styles.css`
+  - `README.md` with usage instructions
+
+Verification:
+- Manual: `cargo run -p rat -- --local-ws --local-port 8081`, then `cd rat-web && pnpm i && pnpm dev`, open http://localhost:5173 and verify:
+  - WS opens with subprotocol `acp.jsonrpc.v1` (Chrome DevTools → Network → WS)
+  - `initialize` is sent and responses are logged
+  - Arbitrary JSON‑RPC payloads echo/bridge as expected
+
+Remaining:
+- Optional: add typed helpers for common ACP methods (session/new, prompt, session/update streaming render).
+- Optional: reconnection with exponential backoff.
+- Optional: environment/config for ws URL/port.
+
+Next:
+- If desired, style and evolve into a fuller UI (chat view, editor, permissions) per `spec_done.md` once hosted relay path is implemented.
+
+
 ## CURRENT STATUS SUMMARY (Updated: December 2024)
 
 ### ✅ **COMPLETED AREAS (~40% of project)**

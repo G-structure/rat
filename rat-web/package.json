@@ -1,0 +1,20 @@
+{
+  "name": "rat-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173"
+  },
+  "dependencies": {
+    "solid-js": "^1.8.17"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0",
+    "vite-plugin-solid": "^2.10.1"
+  }
+}
+

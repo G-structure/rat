@@ -237,6 +237,42 @@ This project is licensed under the MIT OR Apache-2.0 license.
 - [ ] **Phase 5**: Advanced Features (Multi-session management, plugin system)
 - [ ] **Phase 6**: Polish & Documentation
 
+## ACP over Local WebSocket (Dev Testing)
+
+RAT can expose a local, plaintext WebSocket bridge for ACP testing without wscat.
+
+- Start the local WS bridge: `RUST_LOG=trace cargo run -p rat -- --local-ws --local-port 8889`
+- The server listens on `ws://localhost:8889` and echoes the subprotocol `acp.jsonrpc.v1` if requested.
+- Ensure an ACP agent is available. RAT auto-resolves Claude Code; or set `RAT2E_AGENT_CMD`/`RAT2E_AGENT_ARGS`.
+
+Option A: websocat
+- Install: `brew install websocat`
+- Connect: `websocat -t ws://localhost:8889`
+- Paste JSON-RPC messages (one per line):
+  1) initialize
+  {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":false}}}
+  2) newSession (adjust `cwd`)
+  {"jsonrpc":"2.0","id":2,"method":"newSession","params":{"cwd":"/Users/luc/projects/vibes","mcpServers":[]}}
+  3) prompt (replace SESSION_ID)
+  {"jsonrpc":"2.0","id":3,"method":"prompt","params":{"sessionId":"SESSION_ID","prompt":[{"type":"text","text":"hi"}]}}
+
+Option B: Node client (uses `ws`)
+- Install: `npm i ws` (if needed)
+- Run:
+  `node -e 'const WebSocket=require("ws");const ws=new WebSocket("ws://localhost:8889",["acp.jsonrpc.v1"]);ws.on("open",()=>{ws.send(JSON.stringify({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":false}}}));});ws.on("message",(m)=>{console.log("recv:",m.toString());try{const msg=JSON.parse(m.toString());if(msg.result&&msg.result.protocolVersion){ws.send(JSON.stringify({"jsonrpc":"2.0","id":2,"method":"newSession","params":{"cwd":"/Users/luc/projects/vibes","mcpServers":[]}}));}if(msg.result&&msg.result.sessionId){const sid=msg.result.sessionId;ws.send(JSON.stringify({"jsonrpc":"2.0","id":3,"method":"prompt","params":{"sessionId":sid,"prompt":[{"type":"text","text":"hi"}]}}));}}catch{}});'`
+
+Browser flow (for Web UI)
+- Connect to `ws://localhost:8889` with subprotocol `acp.jsonrpc.v1`.
+- Send ACP JSON-RPC 2.0 messages as Text frames, one JSON object per frame.
+- Call in order: `initialize` → `newSession` → `prompt` (content blocks: `{ type:"text", text:"..." }`).
+- Handle responses by `id`, and notifications like `session/update`.
+- If `newSession` returns `auth_required`, set `ANTHROPIC_API_KEY` before launching RAT.
+
+Common pitfalls
+- Missing JSON-RPC fields (`jsonrpc`, `id`, `method`, `params`).
+- Using non-ACP shapes like `{ "type":"prompt", "content":"hi" }`.
+- No credentials set → `auth_required` on `newSession`.
+
 ## Acknowledgments
 
 - [Agent Client Protocol](https://agentclientprotocol.com/) by Zed Industries

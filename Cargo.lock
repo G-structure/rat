@@ -1827,6 +1827,7 @@ dependencies = [
 name = "rat"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "agent-client-protocol",
  "anyhow",
  "async-trait",
@@ -1838,13 +1839,16 @@ dependencies = [
  "env_logger",
  "futures",
  "futures-util",
+ "getrandom 0.2.16",
  "log",
  "rand",
+ "rand_core",
  "ratatui",
  "reqwest",
  "semver",
  "serde",
  "serde_json",
+ "sha2",
  "snow",
  "tachyonfx",
  "tempfile",
