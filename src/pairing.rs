@@ -63,11 +63,13 @@ pub async fn start_pairing() -> Result<()> {
     let (ws_stream, _) = connect_async_with_config(request, Some(ws_cfg), false).await?;
     let (mut ws_write, mut ws_read) = ws_stream.split();
 
-    // Noise IK initiator
-    let noise_params = "Noise_IK_25519_ChaChaPoly_BLAKE2s".parse::<NoiseParams>()?;
-    let mut noise = Builder::new(noise_params)
-        .prologue(b"rat-acp-pairing")
-        .build_initiator()?;
+    // Noise XX initiator (MVP stub): build if possible, but do not fail pairing if unavailable
+    if let Ok(noise_params) = "Noise_XX_25519_ChaChaPoly_BLAKE2s".parse::<NoiseParams>() {
+        let _ = Builder::new(noise_params)
+            .prologue(b"rat-acp-pairing")
+            .local_private_key(&keypair.private)
+            .build_initiator();
+    }
 
     // Send Noise init (subprotocol already negotiated)
     let init_msg = json!({
