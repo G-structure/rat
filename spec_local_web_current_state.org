@@ -1,0 +1,319 @@
+#+BEGIN_SRC text
+#+BEGIN_SRC text
+#+TITLE: RAT Local Web Path — Implementation Reference Specification
+#+SUBTITLE: Describes current, shipping behavior of the browser UI (rat-web) and local WebSocket bridge (src/local_ws.rs)
+#+DATE: 2025-09-17
+#+OPTIONS: toc:3 num:t ^:nil
+
+* Status of This Document
+This specification documents the RAT local web path as implemented in this repository at the time of writing. It is descriptive, not prescriptive: it captures actual runtime behavior, data flows, UI affordances, configuration, and known limitations found in the codebase. It aims to be exhaustive for the local web path and its integration with the ACP agent via the local WebSocket bridge.
+
+This document uses plain language (informative) for most sections. Where applicable, it calls out observable contracts that other subsystems may rely on (normative for dependents).
+
+* Scope
+- In scope: `rat-web/` (SolidJS browser UI) and `src/local_ws.rs` (local WebSocket bridge to an ACP agent). Covers session lifecycle, permission gating, FS and terminal intercepts, and UI views.
+- Out of scope: TUI, hosted relay/Noise transport, and features not present in the current code (e.g., ACP delete/move).
+
+* Architecture
+- Browser UI (`rat-web/`) ↔ Local WS Bridge (`src/local_ws.rs`) ↔ Agent (Claude Code/Gemini)
+- Subprotocol: browser connects with `Sec-WebSocket-Protocol: acp.jsonrpc.v1`; bridge echoes it.
+- Message model: JSON-RPC 2.0 carrying ACP methods (`initialize`, `session/*`, `fs/*`, `terminal/*`) and notifications (`session/update`, `terminal/output`).
+
+* Local WebSocket Bridge (src/local_ws.rs)
+** Entry and Handshake
+- `start_local_ws_server(port)` binds `0.0.0.0:port`, logs warnings for dev-only use, and accepts TCP.
+- `accept_hdr_async` inspects `Sec-WebSocket-Protocol`; echoes `acp.jsonrpc.v1` when offered (browser correctness).
+
+** Agent Resolution and Launch
+- Resolves agent via env (`RAT2E_AGENT_CMD`/`RAT2E_AGENT_ARGS`) or `AgentInstaller` (Claude preferred, Gemini fallback).
+- If launching Claude Code, appends:
+  - `--permission-prompt-tool` = `RAT_PERMISSION_PROMPT_TOOL` (default `mcp__acp__permission`).
+  - `--allowedTools` = `RAT_ALLOWED_TOOLS` (default `mcp__acp__read,mcp__acp__write`).
+  - `--disallowedTools` = `RAT_DISALLOWED_TOOLS` (default `Read,Write,Edit,MultiEdit`).
+- Purpose: steer file ops to ACP FS so the bridge can gate and enforce with browser approval.
+
+** Data Flow and Intercepts (`run_acp_bridge_local`)
+- Two async tasks:
+  - WS→Agent stdin: forwards client Text/Binary to agent; intercepts browser permission responses by `id` and resolves pending approvals.
+  - Agent stdout→WS: reads lines; intercepts ACP methods and emits browser prompts.
+- Pending approvals: `HashMap<String, oneshot::Sender<bool>>` keyed by the original JSON-RPC `id` (stringified). The bridge sends a `session/request_permission` request to the browser with the same `id`.
+- Approval parsing: treats `result.outcome.selected.optionId` as allow if `allow`, any `allow*` (e.g., `allow_always`), `yes`, `ok`, or `approve`; `cancelled=true` or anything else → deny.
+
+** Intercepted Methods and Behavior
+- `fs/read_text_file`: read locally with `tokio::fs::read_to_string`; reply `{result:{content}}` (no prompt).
+- `fs/write_text_file`: send browser prompt `{method:"session/request_permission", id:<same>, params:{tool:"write_text_file", reason, options:[{id:"allow"},{id:"deny"}]}}`.
+  - On approve: create parent dir if needed; write content; reply `{result:{}}`.
+  - On deny/error: reply `{error:{code:-32000, message}}`.
+- `terminal/execute`: prompt browser (`tool:"terminal_execute"` with human reason). On approve: spawn process; stream lines to browser via `{method:"terminal/output", params:{stream,line}}`; on exit reply `{result:{exitCode}}`.
+- All other messages: forwarded transparently to the browser.
+
+** Echo Mode (No Agent)
+- If no agent resolved, sends a JSON welcome and echoes Text frames in a JSON envelope for testing.
+
+** Tests
+- `ws_handshake_echoes_acp_subprotocol` — verifies subprotocol echo.
+- `ws_accepts_acp_text_frames_in_echo_mode` — validates echo mode round-trip.
+
+** Error Handling and Safety
+- Handshake and IO errors are logged and terminate the session only; server continues accepting.
+- File writes ensure parent directory exists; errors are returned to agent with `-32000`.
+- Dev-only: no TLS/auth; not suitable for production.
+
+* Tool IDs and Mapping (Claude Code)
+- Built-ins: `Read`, `Write`, `Edit`, `MultiEdit` — internal to the agent; may show prompts but enforcement is in the agent. In web mode these can fail or be blocked if disallowed.
+- Bridge-facing (ACP FS): `mcp__acp__read` → `fs/read_text_file`; `mcp__acp__write` → `fs/write_text_file`.
+- Permission surfacing: `mcp__acp__permission` used with `--permission-prompt-tool`.
+- Note on `mcp__acp__edit`: not used/configured here; diffs are realized via `fs/write_text_file` rather than a dedicated ACP edit tool.
+
+* Browser Web UI (rat-web/)
+** Connection Lifecycle (`src/lib/ws.ts`)
+- `WebSocket(url, "acp.jsonrpc.v1")` → on open sends `initialize` with `clientCapabilities.fs.{readTextFile,writeTextFile}=true`.
+- Provides helpers: `startSession` (`session/new`), `sendPrompt` (`session/prompt`), `closeSession` (`session/close` best-effort), `sendRaw`.
+- Persists known session IDs and active session in `localStorage`; attempts `session/load` on connect (server may not support it).
+
+** State Routing (`src/lib/ws.ts`, `src/state.ts`)
+- Per-session state: `{messages, plan, terminal, commands, availableModes, currentMode, diffs}`.
+- Routes `session/update` kinds into state:
+  - `agent_message_chunk` / `user_message_chunk` → ChatView.
+  - `availableCommands` → CommandsPanel.
+  - `availableModes`/`currentMode` → ModeSelector.
+  - `plan.items` → PlanPanel (id/title/status mapping).
+  - `diff` (path+text/patch) → DiffView.
+  - `terminal/output` (any `method` starting with `terminal/`) → TerminalView.
+
+** Permission Dialog (`src/components/PermissionDialog.tsx`)
+- Detects requests where `method` matches `/request[_-]?permission/` or has `params.tool|toolCall` and `params.options[]`.
+- Renders tool/reason; buttons: Allow (prefer `allow`/`allow_always`), Deny (prefer `reject`/`reject_always`); sends `{id, result:{ outcome:{ selected:{ optionId }}}}` or `{id, result:{ outcome:{ cancelled:true }}}`.
+- Outgoing permission selections are console-logged for diagnostics.
+
+** Views (`src/App.tsx` and components)
+- Tabs: Chat, Plan (click item cycles `pending → in_progress → completed` locally), Diffs (read-only), Terminal (streams), Commands (list), Raw log.
+- Sidebars: Commands + Mode (left), Plan + Terminal (right). Input row sends prompts to active session.
+
+* Configuration (Bridge Env → Agent Flags)
+- `RAT_PERMISSION_PROMPT_TOOL` (default `mcp__acp__permission`).
+- `RAT_ALLOWED_TOOLS` (default `mcp__acp__read,mcp__acp__write`).
+- `RAT_DISALLOWED_TOOLS` (default `Read,Write,Edit,MultiEdit`).
+- Defaults enforce browser-gated ACP FS writes and avoid built-in Edit bypass.
+
+* Known Limitations
+- Bridge only intercepts `fs/read_text_file`, `fs/write_text_file`, and `terminal/execute`.
+- Built-in tools (Edit/Write) cannot be enforced by the bridge; rely on disallowing them to steer to ACP FS.
+- Web UI Plan status changes are client-only; no round-trip to agent.
+- DiffView is read-only; no “Apply edit” button.
+- Commands are not invokable from UI; list-only.
+- Dev-only path: no TLS/auth; not for production use.
+
+* Extension Points
+- Add intercepts for FS delete/move; expose matching `mcp__acp__*` tool ids if needed.
+- Implement Diff apply flow that writes new_text via `fs/write_text_file` with bridge permission.
+- Command palette to invoke `availableCommands` with args.
+- Richer permission dialog rendering for `toolCall` content (diff preview).
+
+* Message Examples (Appendix)
+The following JSON snippets illustrate the typical frames exchanged in the local web path. Line breaks added for readability; actual frames are single-line JSON strings.
+
+** Initialize
+#+BEGIN_SRC json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":false}}}
+#+END_SRC
+
+** Session Update (agent message chunk)
+#+BEGIN_SRC json
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"<sid>","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"…"}}}}
+#+END_SRC
+
+** Bridge-synthesized Permission Request (for fs/write_text_file)
+— Sent by the bridge to the browser using the same id as the original fs call
+#+BEGIN_SRC json
+{"jsonrpc":"2.0","id":42,"method":"session/request_permission","params":{"tool":"write_text_file","reason":"Agent requested to write /path/to/file.txt","options":[{"id":"allow","label":"Allow"},{"id":"deny","label":"Deny"}]}}
+#+END_SRC
+
+** Browser Permission Response (Allow)
+#+BEGIN_SRC json
+{"jsonrpc":"2.0","id":42,"result":{"outcome":{"selected":{"optionId":"allow"}}}}
+#+END_SRC
+
+** ACP FS Write (original agent request seen by the bridge)
+#+BEGIN_SRC json
+{"jsonrpc":"2.0","id":42,"method":"fs/write_text_file","params":{"path":"/path/to/file.txt","content":"Hello world"}}
+#+END_SRC
+
+** Bridge Reply to Agent (write success)
+#+BEGIN_SRC json
+{"jsonrpc":"2.0","id":42,"result":{}}
+#+END_SRC
+
+** Terminal Execute (agent request)
+#+BEGIN_SRC json
+{"jsonrpc":"2.0","id":77,"method":"terminal/execute","params":{"cmd":"echo","args":["hi"],"cwd":"/tmp"}}
+#+END_SRC
+
+** Bridge-synthesized Permission Request (for terminal/execute)
+#+BEGIN_SRC json
+{"jsonrpc":"2.0","id":77,"method":"session/request_permission","params":{"tool":"terminal_execute","reason":"Agent requested to run: echo hi","options":[{"id":"allow"},{"id":"deny"}]}}
+#+END_SRC
+
+** Bridge Streaming Terminal Output to Browser
+#+BEGIN_SRC json
+{"jsonrpc":"2.0","method":"terminal/output","params":{"stream":"stdout","line":"hi"}}
+#+END_SRC
+
+** Bridge Reply to Agent (process exit)
+#+BEGIN_SRC json
+{"jsonrpc":"2.0","id":77,"result":{"exitCode":0}}
+#+END_SRC
+
+* Requirements Traceability Matrix (RTM)
+| Req ID        | Target                | Description                                        | Verification                                   | Status  |
+|---------------+-----------------------+----------------------------------------------------+-------------------------------------------------+---------|
+| LWP-RTM-001   | Bridge Handshake      | Echo `acp.jsonrpc.v1` subprotocol                  | Test `ws_handshake_echoes_acp_subprotocol`      | Must    |
+| LWP-RTM-010   | FS Read Intercept     | Handle `fs/read_text_file` locally (no prompt)     | Manual read; observe `{result:{content}}`       | Must    |
+| LWP-RTM-011   | FS Write Intercept    | Prompt browser; on Allow write and reply success   | Manual write; permission dialog then `{result}` | Must    |
+| LWP-RTM-020   | Terminal Execute      | Prompt browser; run, stream, return exit code      | Manual `terminal/execute`; see `terminal/output`| Should  |
+| LWP-RTM-030   | Tool Map (read)       | `mcp__acp__read` → `fs/read_text_file`             | Enable tool; confirm agent uses `fs/read_*`     | Must    |
+| LWP-RTM-031   | Tool Map (write)      | `mcp__acp__write` → `fs/write_text_file`           | Enable tool; confirm agent uses `fs/write_*`    | Must    |
+| LWP-RTM-032   | Permission Tool       | Use `mcp__acp__permission` for prompts             | Inspect launch flags; prompts reach browser     | Should  |
+| LWP-RTM-040   | Built-ins Default Off | Disallow `Read,Write,Edit,MultiEdit` by default    | Inspect launch flags; built-ins blocked         | Should  |
+
+* WebSocket Bridge (src/local_ws.rs)
+** Entry and Handshake
+- `start_local_ws_server(port: u16)` binds on `0.0.0.0:<port>`, logs dev warnings, and accepts TCP connections.
+- Accepts WebSocket via `tokio_tungstenite::accept_hdr_async`, echoing `Sec-WebSocket-Protocol: acp.jsonrpc.v1` when requested (browser subprotocol correctness).
+- If an agent is available, proceeds to bridge mode; otherwise falls back to echo mode for testing.
+
+** Agent Resolution and Launch
+- Attempts to resolve an ACP agent automatically via `AgentInstaller` (Claude Code preferred, Gemini fallback). Alternatively honors environment:
+  - `RAT2E_AGENT_CMD` and optional `RAT2E_AGENT_ARGS` to directly specify the agent executable + args.
+- When the launch path appears to be Claude Code, additional flags are appended:
+  - `--permission-prompt-tool` from `RAT_PERMISSION_PROMPT_TOOL` (default: `mcp__acp__permission`).
+  - `--allowedTools` from `RAT_ALLOWED_TOOLS` (default: `mcp__acp__read,mcp__acp__write`).
+  - `--disallowedTools` from `RAT_DISALLOWED_TOOLS` (default: `Read,Write,Edit,MultiEdit`).
+- Rationale: steer file edits through ACP FS tools so the bridge can enforce browser-approved writes.
+
+** Bridge Data Flow (`run_acp_bridge_local`)
+- Splits WS into writer/reader and spawns two tasks:
+  - WS→Agent stdin: forwards text frames line-by-line into the agent. Intercepts browser responses to permission requests and resolves pending approvals.
+  - Agent stdout→WS: reads agent lines; intercepts select ACP method calls to gate them via the browser; forwards everything else to the browser as-is.
+- Pending permission map: `pending_perms: HashMap<String, oneshot::Sender<bool>>` keyed by the JSON-RPC `id` (stringified). The bridge sends a `session/request_permission` with the same `id` back to the browser and awaits selection.
+- Approval recognition: outcome.selected.optionId values are treated as allow if they are `"allow"`, start with `"allow"` (e.g., `allow_once`, `allow_always`), or equal `"yes"`, `"ok"`, or `"approve"`.
+
+** Intercepts and Local Actions
+- `fs/write_text_file` (ACP FS write)
+  - Emits permission request: `{ method: "session/request_permission", id: <same id>, params: { tool: "write_text_file", reason, options:[{id:"allow"},{id:"deny"}] } }`.
+  - On Allow: ensures parent dir exists, writes the file locally with `tokio::fs::write`, and replies `{ "result": {} }` to the agent with the original `id`.
+  - On Deny/Error: replies with `{ "error": { code: -32000, message: "permission denied" | write error } }`.
+- `fs/read_text_file` (ACP FS read)
+  - No prompt. Reads the file with `tokio::fs::read_to_string` and replies with `{ "result": { content } }`.
+- `terminal/execute`
+  - Emits permission request similar to FS write with `tool: "terminal_execute"` and a human string: `"Agent requested to run: <cmd> <args>"`.
+  - On Allow: spawns the process (optional `cwd`), streams stdout/stderr lines to the browser via notifications `{ method: "terminal/output", params: { stream, line } }`, waits for exit code, and replies `{ "result": { exitCode } }` to the agent.
+  - On Deny: replies with `permission denied` error payload.
+- Non-intercepted lines are forwarded to the browser untouched.
+
+** Echo Mode (No Agent)
+- If no agent is resolved/provided, the server sends a JSON welcome and echoes any incoming Text frames back in a JSON envelope for testing.
+
+** Tests
+- `ws_handshake_echoes_acp_subprotocol`: verifies the handshake echoes `acp.jsonrpc.v1` when offered.
+- `ws_accepts_acp_text_frames_in_echo_mode`: verifies echo behavior without an agent.
+
+** Security and Limitations
+- Local-only dev bridge: no TLS, no authentication, no origin filtering. Not for production use.
+- Intercepts cover text reads/writes and terminal execute. Other FS operations (delete/move), networking, or arbitrary custom tools are not gated by the bridge today.
+- Built-in agent tools (Edit/Write) are not enforceable by the bridge—prefer ACP FS path for browser-approved writes.
+
+* Browser Web UI (rat-web/)
+** Connection and Lifecycle (`src/lib/ws.ts`)
+- Creates `WebSocket(url, "acp.jsonrpc.v1")`; on open sends `initialize` with `clientCapabilities.fs.readTextFile=true, writeTextFile=true`.
+- Provides helpers to send raw JSON, start/close sessions, and send prompts.
+- Maintains an incrementing JSON-RPC `id` counter for client-originated requests.
+- Persists a list of known session IDs and the active session in `localStorage` and attempts `session/load` on connect (server may reply Method not found).
+
+** Routing and State Updates
+- Parses incoming frames and routes `session/update` into per-session state:
+  - Chat: `agent_message_chunk` and `user_message_chunk` append messages.
+  - Plan: maps `plan.items` into `{ id, title/name, status }` and upserts into session state.
+  - Commands: stores `availableCommands` list.
+  - Modes: stores `availableModes` and `currentMode`.
+  - Diffs: if update carries a diff `{path, text/patch}`, stores as `{ path, diff }` for the session.
+- Terminal: any `method` starting with `"terminal/"` is appended to the session’s terminal log (bridge uses `terminal/output`).
+
+** Permission Flow
+- Heuristic detection of permission requests: treats a message as permission if `method` matches `/request[_-]?permission/` or if `params.tool|toolCall` with `params.options[]` is present.
+- Enqueues a permission request into UI state with `{ rid: <rpc id>, tool|toolCall, reason, options }`.
+- User actions:
+  - Allow: `sendPermissionSelected(rid, optionId)` sends `{ id: rid, result: { outcome: { selected: { optionId } } } }`.
+  - Deny: chooses an explicit reject option if present; otherwise `sendPermissionCancelled(rid)`.
+- Logging: outgoing permission selections are console-logged for diagnostics.
+
+** UI Components and Views
+- Root: `src/App.tsx` — header (connect/disconnect), session tabs, top nav, three-column layout, input row, and `PermissionDialog` overlay.
+- Left sidebar: `CommandsPanel` (lists available commands), `ModeSelector` (sets `session/set_mode` with optimistic update).
+- Main area (tabbed):
+  - `ChatView`: shows chat messages.
+  - `PlanPanel`: shows plan items; items are clickable to cycle status (local-only state change).
+  - `DiffView`: shows stored diffs for the active session (path + text); no “apply” action yet.
+  - `TerminalView`: shows streamed `terminal/output` lines.
+  - `Raw` log: shows raw TX/RX lines maintained by `ws.ts`.
+- Right sidebar: duplicate `PlanPanel` and `TerminalView` for quick reference.
+- Styling: minimal CSS in `src/styles.css`; dark palette; simple buttons.
+
+** State Model (`src/state.ts`)
+- `sessions: Record<sessionId, { messages, plan, terminal, commands, availableModes, currentMode, diffs }>`.
+- Helpers to ensure a session, push messages/terminal lines, upsert plan, set commands/modes/diffs, and update a single plan item status.
+- `permissions: PermissionReq[]` queue for the dialog; enqueue/dequeue helpers.
+- Persistence helpers to store session list and active session in `localStorage`.
+
+** Known Limitations (Web UI)
+- Plan status cycling is client-only; not sent back to the agent.
+- Diff view is read-only; there is no “Apply edit” flow yet.
+- Commands are not invokable via UI; only listed.
+- `session/load` is attempted on connect but the server may not support it.
+- Permission detection is heuristic; it works for both bridge prompts (tool string) and agent prompts (toolCall), but content is displayed in a simple form.
+
+* Configuration and Defaults
+- Environment variables used by the bridge when launching Claude Code:
+  - `RAT_PERMISSION_PROMPT_TOOL`: tool id used by the agent to surface permission prompts (default: `mcp__acp__permission`).
+  - `RAT_ALLOWED_TOOLS`: allowed tool ids (default: `mcp__acp__read,mcp__acp__write`).
+  - `RAT_DISALLOWED_TOOLS`: disallowed tool ids (default: `Read,Write,Edit,MultiEdit`).
+- Behavior implications:
+  - Defaults steer file edits through ACP FS (`fs/*`), which the bridge can enforce via browser approval. Built-in `Edit/Write` are disallowed to avoid bypassing the bridge.
+
+** Tool IDs and Mapping (Claude Code)**
+- Built-in (Claude Code) tools commonly exposed by the adapter:
+  - `Read` — reads files using Claude’s internal mechanism (not ACP FS).
+  - `Write` — writes files using Claude’s internal mechanism (not ACP FS).
+  - `Edit` — applies text edits (diff-style) internally.
+  - `MultiEdit` — applies multiple edits in one operation.
+  - Behavior in this repo: When any of these are allowed and selected by the agent, the browser may still show a permission dialog, but execution and enforcement remain within the agent. In web/bridge mode, these may fail to write locally or be blocked by `--disallowedTools`, resulting in messages like “User refused permission to run tool”.
+
+- ACP (bridge-facing) tools used to steer the agent to ACP FS calls:
+  - `mcp__acp__read` — causes agent to issue `fs/read_text_file`, enabling the bridge to satisfy the read locally.
+  - `mcp__acp__write` — causes agent to issue `fs/write_text_file`, which the bridge gates with a browser permission dialog and performs the write locally on approval.
+  - `mcp__acp__permission` — used as `--permission-prompt-tool` so permission prompts are surfaced consistently to the client (bridge/browser).
+
+- Notes on other tool IDs (e.g., `mcp__acp__edit`):
+  - This repository does not currently configure or rely on `mcp__acp__edit`. Diff edits proposed by the agent are expected to be realized through ACP FS writes (`fs/write_text_file`) rather than a dedicated “edit” tool id on the ACP side.
+  - If the upstream Claude adapter offers `mcp__acp__edit`, enabling it would still require the bridge to either interpret and apply diffs locally or translate them into one or more `fs/write_text_file` operations. That translation layer is not implemented here.
+
+- Terminal execution:
+  - There is no explicit `mcp__acp__execute` tool id in this repo’s env mapping. The bridge intercepts the ACP method `terminal/execute` directly, prompts the browser, and, on approval, spawns the process and streams output.
+
+
+* Developer Usage
+- Start bridge: `cargo run -p rat -- --local-ws --local-port 8081` (optionally set envs above).
+- Start web UI: `cd rat-web && pnpm i && pnpm dev`, then open the dev server URL and click Connect.
+- Create a session, send a prompt, and observe plan/tool/diff/terminal updates. Approve file writes from the browser when prompted.
+
+* Interop Notes
+- ACP FS in code: see `src/acp/client.rs` methods `read_text_file`/`write_text_file` (types from `agent-client-protocol` crate). The bridge uses their JSON-RPC equivalents when intercepting.
+- Permission request/response shapes follow `RequestPermissionRequest/Response` structure at the wire level; the bridge reuses the original request `id` to simplify correlation.
+
+* Future Extensions (Non-normative)
+- Add intercepts for FS delete/move, and optionally expose corresponding `mcp__acp__…` tool ids to nudge the agent.
+- Add Diff apply flow in the Web UI (write new_text with a browser prompt) and show per-hunk previews.
+- Add command palette to invoke `availableCommands` with arguments.
+- Improve permission display for `toolCall` content (render diffs/paths inline).
+
+#+END_SRC

@@ -10,10 +10,10 @@ Zed's ACP permission system implements a sophisticated user-controlled mechanism
 
 ### 1. Protocol Foundation
 
-**Agent Client Protocol (ACP)**: External crate `agent-client-protocol v0.2.0-alpha.6` with unstable features
+**Agent Client Protocol (ACP)**: External crate `agent-client-protocol` (see `agent-client-protocol/Cargo.toml` for the current version)
 - Defines standardized communication between Zed and external agents (Claude Code, Gemini CLI)
 - Handles tool call requests, responses, and permission management
-- Uses JSON-RPC-like message passing over stdio
+- Uses JSON-RPC 2.0-style message passing over stdio
 
 ### 2. Key Components
 
@@ -37,12 +37,11 @@ Zed's ACP permission system implements a sophisticated user-controlled mechanism
 
 ### 1. ACP Protocol Integration
 
-#### Client-Side Connection (`crates/agent_servers/src/acp.rs`)
+#### Client-Side Connection (`zed/crates/agent_servers/src/acp.rs`)
 
 The ACP connection establishes the communication channel with external agents:
 
 ```rust
-// crates/agent_servers/src/acp.rs:340-356
 impl acp::Client for ClientDelegate {
     async fn request_permission(
         &self,
@@ -70,12 +69,12 @@ impl acp::Client for ClientDelegate {
 
 ### 2. Permission Evaluation and Request
 
-#### Core Permission Logic (`crates/acp_thread/src/acp_thread.rs`)
+#### Core Permission Logic (`zed/crates/acp_thread/src/acp_thread.rs`)
 
 The main permission evaluation happens in the ACP thread:
 
 ```rust
-// crates/acp_thread/src/acp_thread.rs:1302-1347
+// zed/crates/acp_thread/src/acp_thread.rs
 pub fn request_tool_call_authorization(
     &mut self,
     tool_call: acp::ToolCallUpdate,
@@ -157,7 +156,7 @@ pub enum ToolCallStatus {
 #### Permission Decision Processing
 
 ```rust
-// crates/acp_thread/src/acp_thread.rs:1349-1378
+// zed/crates/acp_thread/src/acp_thread.rs
 pub fn authorize_tool_call(
     &mut self,
     id: acp::ToolCallId,
@@ -194,12 +193,12 @@ pub fn authorize_tool_call(
 
 ### 4. UI Components and Rendering
 
-#### Permission Dialog Rendering (`crates/agent_ui/src/acp/thread_view.rs`)
+#### Permission Dialog Rendering (`zed/crates/agent_ui/src/acp/thread_view.rs`)
 
 The UI renders permission buttons based on the tool call status:
 
 ```rust
-// crates/agent_ui/src/acp/thread_view.rs:2404-2460
+// zed/crates/agent_ui/src/acp/thread_view.rs
 fn render_permission_buttons(
     &self,
     options: &[acp::PermissionOption],
@@ -264,7 +263,7 @@ fn render_permission_buttons(
 The permission buttons are rendered as part of the tool call display:
 
 ```rust
-// crates/agent_ui/src/acp/thread_view.rs:2097-2117
+// zed/crates/agent_ui/src/acp/thread_view.rs
 ToolCallStatus::WaitingForConfirmation { options, .. } => v_flex()
     .w_full()
     .children(tool_call.content.iter().map(|content| {
@@ -290,12 +289,12 @@ ToolCallStatus::WaitingForConfirmation { options, .. } => v_flex()
 
 ### 5. Agent-Side Permission Requests
 
-#### Tool Authorization in Agent2 (`crates/agent2/src/thread.rs`)
+#### Tool Authorization in Agent2 (`zed/crates/agent2/src/thread.rs`)
 
 Native Zed agents use `ToolCallEventStream` to request permissions:
 
 ```rust
-// crates/agent2/src/thread.rs:2421-2470
+// zed/crates/agent2/src/thread.rs
 pub fn authorize(&self, title: impl Into<String>, cx: &mut App) -> Task<Result<()>> {
     if agent_settings::AgentSettings::get_global(cx).always_allow_tool_actions {
         return Task::ready(Ok(()));
@@ -462,10 +461,10 @@ pub struct PermissionOption {
 
 ### 8. Error Handling and Edge Cases
 
-#### Connection Error Handling (`crates/agent_servers/src/acp.rs`)
+#### Connection Error Handling (`zed/crates/agent_servers/src/acp.rs`)
 
 ```rust
-// crates/agent_servers/src/acp.rs:277-312
+// zed/crates/agent_servers/src/acp.rs
 match result {
     Ok(response) => Ok(response),
     Err(err) => {
@@ -503,10 +502,10 @@ match result {
 }
 ```
 
-#### Cancelation Handling
+#### Cancellation Handling
 
 ```rust
-// crates/acp_thread/src/acp_thread.rs:1817-1830
+// zed/crates/acp_thread/src/acp_thread.rs
 pub fn cancel(&mut self, cx: &mut Context<Self>) -> Task<()> {
     let Some(send_task) = self.send_task.take() else {
         return Task::ready(());

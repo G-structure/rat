@@ -8,7 +8,7 @@ Zed's ACP agent launching system provides a robust framework for spawning and ma
 
 ### Agent Server Abstraction
 
-The agent launching system is built around the `AgentServer` trait (`/Users/luc/projects/vibes/zed/crates/agent_servers/src/lib.rs`):
+The agent launching system is built around the `AgentServer` trait (`zed/crates/agent_servers/src/lib.rs`):
 
 ```rust
 pub trait AgentServer {
@@ -28,7 +28,7 @@ Each agent type implements this trait to provide its specific launching logic.
 
 ### Command Structure
 
-All agent launches use the `AgentServerCommand` structure (`/Users/luc/projects/vibes/zed/crates/agent_servers/src/agent_servers.rs:298`):
+All agent launches use the `AgentServerCommand` structure (`zed/crates/agent_servers/src/agent_servers.rs`):
 
 ```rust
 pub struct AgentServerCommand {
@@ -44,9 +44,9 @@ This structure encapsulates the executable path, command-line arguments, and env
 
 ### Claude Code Launching
 
-Claude Code launching is implemented in `/Users/luc/projects/vibes/zed/crates/agent_servers/src/claude.rs`. The process involves:
+Claude Code launching is implemented in `zed/crates/agent_servers/src/claude.rs`. The process involves:
 
-#### Command Construction (`claude.rs:85-110`)
+#### Command Construction
 ```rust
 let mut command = if let Some(settings) = settings {
     settings.command  // Use user-configured command
@@ -66,7 +66,7 @@ let mut command = if let Some(settings) = settings {
 };
 ```
 
-#### Environment Setup (`claude.rs:107-113`)
+#### Environment Setup
 ```rust
 project_env.extend(command.env.take().unwrap_or_default());
 command.env = Some(project_env);
@@ -78,18 +78,18 @@ command
     .insert("ANTHROPIC_API_KEY".to_owned(), "".to_owned());
 ```
 
-#### Connection Establishment (`claude.rs:122`)
+#### Connection Establishment
 ```rust
 crate::acp::connect(server_name, command.clone(), &root_dir, cx).await
 ```
 
-The Claude Code adapter (`/Users/luc/projects/vibes/claude-code-acp/src/acp-agent.ts`) implements the ACP `Agent` interface and handles the actual agent logic.
+The Claude Code adapter (`claude-code-acp/src/acp-agent.ts`) implements the ACP `Agent` interface and handles the actual agent logic.
 
 ### Gemini CLI Launching
 
-Gemini CLI launching is implemented in `/Users/luc/projects/vibes/zed/crates/agent_servers/src/gemini.rs` with additional complexity for version checking and capability validation.
+Gemini CLI launching is implemented in `zed/crates/agent_servers/src/gemini.rs` with additional complexity for version checking and capability validation.
 
-#### Command Construction (`gemini.rs:57-73`)
+#### Command Construction
 ```rust
 let mut command = if let Some(settings) = settings
     && let Some(command) = settings.custom_command()
@@ -111,21 +111,21 @@ let mut command = if let Some(settings) = settings
 };
 ```
 
-#### ACP Argument Injection (`gemini.rs:74-76`)
+#### ACP Argument Injection
 ```rust
 if !command.args.contains(&ACP_ARG.into()) {
     command.args.push(ACP_ARG.into());  // "--experimental-acp"
 }
 ```
 
-#### API Key Setup (`gemini.rs:77-80`)
+#### API Key Setup
 ```rust
 if let Some(api_key) = cx.update(GoogleLanguageModelProvider::api_key)?.await.ok() {
     project_env.insert("GEMINI_API_KEY".to_owned(), api_key.key);
 }
 ```
 
-#### Version and Capability Validation (`gemini.rs:92-153`)
+#### Version and Capability Validation
 The Gemini launcher performs extensive validation:
 
 1. **Post-Connection Validation** (`gemini.rs:94-113`):
@@ -140,7 +140,7 @@ The Gemini launcher performs extensive validation:
 
 ### Custom Agent Launching
 
-Custom agents are launched through `/Users/luc/projects/vibes/zed/crates/agent_servers/src/custom.rs`:
+Custom agents are launched through `zed/crates/agent_servers/src/custom.rs`:
 
 ```rust
 impl crate::AgentServer for CustomAgentServer {
@@ -164,7 +164,7 @@ Custom agents use user-provided `AgentServerCommand` configurations directly.
 
 ### ACP Connection Establishment
 
-The core launching logic is in `/Users/luc/projects/vibes/zed/crates/agent_servers/src/acp.rs:44-50`:
+The core launching logic is in `zed/crates/agent_servers/src/acp.rs`:
 
 ```rust
 pub async fn connect(
@@ -207,7 +207,7 @@ pub async fn stdio(
 - **Environment**: Inherits project environment plus agent-specific variables
 - **Lifecycle**: `kill_on_drop(true)` ensures cleanup on process termination
 
-### Communication Setup (`acp.rs:76-87`)
+### Communication Setup
 
 After spawning, the system establishes JSON-RPC communication:
 
@@ -221,7 +221,7 @@ let (connection, io_task) = acp::ClientSideConnection::new(
 );
 ```
 
-### Background Task Management (`acp.rs:88-103`)
+### Background Task Management
 
 Multiple background tasks handle different aspects:
 
@@ -229,7 +229,7 @@ Multiple background tasks handle different aspects:
 2. **Stderr Logging** (`acp.rs:91-101`): Captures and logs agent stderr output
 3. **Process Monitoring** (`acp.rs:103-118`): Waits for process exit and handles cleanup
 
-### Protocol Initialization (`acp.rs:129-155`)
+### Protocol Initialization
 
 After connection establishment, Zed initializes the ACP protocol:
 
@@ -252,7 +252,7 @@ let response = connection
 
 ### Project Environment Integration
 
-All agents inherit the project's environment (`gemini.rs:51-56`, `claude.rs:86-91`):
+All agents inherit the project's environment:
 
 ```rust
 let mut project_env = project
@@ -271,7 +271,7 @@ This includes:
 
 ### Directory Validation
 
-Before launching, all implementations validate the working directory (`claude.rs:115-120`, `gemini.rs:84-89`):
+Before launching, all implementations validate the working directory:
 
 ```rust
 let root_dir_exists = fs.is_dir(&root_dir).await;
@@ -286,7 +286,7 @@ anyhow::ensure!(
 
 ### NPM Package Installation
 
-For built-in agents, Zed uses `/Users/luc/projects/vibes/zed/crates/agent_servers/src/agent_servers.rs:76-210` for automatic installation:
+For built-in agents, Zed uses `zed/crates/agent_servers/src/agent_servers.rs` for automatic installation:
 
 ```rust
 pub fn get_or_npm_install_builtin_agent(
@@ -315,13 +315,13 @@ Agents are installed to `paths::data_dir()/external_agents/{binary_name}/` with 
 
 Different agent types handle launch failures with specific diagnostics:
 
-#### Gemini Version Validation (`gemini.rs:92-153`)
+#### Gemini Version Validation
 - Post-launch capability checking
 - Version command execution
 - Detailed error messages with version information
 - Fallback to help command parsing
 
-#### Claude Code Authentication (`claude.rs:24-55`)
+#### Claude Code Authentication
 - Login command generation for authentication
 - Separate login flow handling
 
@@ -369,7 +369,7 @@ let wait_task = cx.spawn({
 
 ### Settings Integration
 
-Agent launching integrates with Zed's settings system (`/Users/luc/projects/vibes/zed/crates/agent_servers/src/settings.rs`):
+Agent launching integrates with Zed's settings system (`zed/crates/agent_servers/src/settings.rs`):
 
 ```rust
 #[derive(Clone, Debug, Deserialize, PartialEq)]

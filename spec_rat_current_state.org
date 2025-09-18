@@ -211,6 +211,23 @@ This document uses plain language (informative) for most sections. Where applica
 - Memory usage is only available on Unix via `/proc/self/status`; non-Unix builds report `None`.
 - Effects assume ratatui buffer semantics; on extremely small terminals effects are skipped entirely (by design) and UI may appear static.
 
+* Requirements Traceability Matrix (RTM)
+| Req ID        | Target            | Description                                           | Grounding (code paths)                                  | Status |
+|---------------+-------------------+-------------------------------------------------------+----------------------------------------------------------+--------|
+| RAT-RTM-001   | TUI Loop          | Non-blocking render loop (~50ms tick)                 | `src/app.rs` main loop (`tokio::select!` + 50ms)         | Must   |
+| RAT-RTM-010   | Agent Connect     | Create/connect session and surface messages           | `adapters/manager.rs` → `AppMessage::AgentMessage`       | Must   |
+| RAT-RTM-020   | Chat Rendering    | Append/render agent/user text messages                | `TuiManager` chat view consumes `AgentMessage`           | Must   |
+| RAT-RTM-030   | Tabs              | Session tabs with active focus switching              | `TuiManager` tabs model (`active_tab`, label scheme)     | Must   |
+| RAT-RTM-040   | Keybindings Quit  | Quit via configured key and Ctrl+C                    | Config `ui.keybindings.quit`; Ctrl+C in `main.rs`        | Must   |
+| RAT-RTM-041   | 'q' in TuiManager | Inline `'q'` handling inside TUI component            | Not wired in `TuiManager` (noted in Known Limitations)   | Should |
+| RAT-RTM-050   | Error Modal       | Modal error popup on `AppMessage::Error`              | `TuiManager` error handling/render                       | Must   |
+| RAT-RTM-060   | Logging           | File logging to `logs/rat.log`                        | `env_logger` init in `main.rs`                           | Must   |
+| RAT-RTM-070   | Effects Toggle    | Honor `--no-effects` / intro disabled switches        | CLI flags in `main.rs`; effects guards in UI             | Should |
+| RAT-RTM-080   | Plan Integration  | Display/interaction for plan items                    | Not integrated; placeholder in UI modules                | Should |
+| RAT-RTM-090   | Diff Integration  | Diff panel and accept/reject bindings                 | Not integrated; `DiffView` exists but not wired          | Should |
+| RAT-RTM-100   | Permission UI     | Render/respond to ACP permission prompts              | Not integrated; `PermissionPrompt` module exists         | Should |
+| RAT-RTM-110   | Terminal Panel    | Toggle/show terminal output inside TUI                | Not integrated; `TerminalView` exists                    | Should |
+
 * Extension Points and Future Integration Hooks
 - Wire Agent Selector: handle Enter to issue `UiToApp::ConnectAgent { agent_name }` and close popup.
 - Integrate DiffView: on receiving `EditProposed`, add proposal to `DiffView` and provide `y/n/d` bindings at the TuiManager layer to accept/reject/view.
@@ -244,4 +261,3 @@ This document uses plain language (informative) for most sections. Where applica
 
 * End of Document
 #+END_SRC
-

@@ -20,7 +20,7 @@ const pendingPerms = new Map<string | number, { options?: { id: string; label?: 
 
 export function sendPermissionSelected(rid: string | number, optionId: string) {
   if (!wsGlobal || wsGlobal.readyState !== WebSocket.OPEN) return;
-  const resp = { jsonrpc: "2.0", id: rid, result: { outcome: { selected: { optionId } } } };
+  const resp = { jsonrpc: "2.0", id: rid, result: { outcome: { outcome: "selected", optionId } } };
   wsGlobal.send(JSON.stringify(resp));
   // best-effort log for visibility
   try {

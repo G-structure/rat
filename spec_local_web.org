@@ -1,0 +1,21 @@
+#+BEGIN_SRC text
+#+TITLE: RAT Remote Control via Local Websockets — Software Design Specification
+#+SUBTITLE: Version 1.0.0
+#+AUTHOR: RAT2E Working Group
+#+DATE: 2025-09-16
+#+OPTIONS: toc:3 num:t ^:nil
+#+LANGUAGE: en
+#+PROPERTY: header-args :results none :exports code
+[BCP 14](https://www.rfc-editor.org/info/bcp14) [RFC 7322](https://datatracker.ietf.org/doc/html/rfc7322)
+
+* Status of This Document
+This is a living engineering specification intended for internal and partner implementation. It uses normative key words per BCP 14 and distinguishes Normative vs Informative sections. It is not an IETF standard. [RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119) [RFC 8174](https://www.rfc-editor.org/info/bcp14) [RFC 7322](https://datatracker.ietf.org/doc/html/rfc7322)
+
+
+* Abstract
+This specification defines a local-first control path where a browser-based WebUI implemented in SolidJS connects to a host process over a single WebSocket and transports ACP messages as JSON-RPC for session management, file viewing and editing, and terminal operations, yielding an interoperable baseline that runs on loopback, LAN, or a private overlay without additional relay services. [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) [JSON-RPC 2.0](https://www.jsonrpc.org/specification) [Agent Client Protocol](https://agentclientprotocol.com/) [SolidJS Docs](https://docs.solidjs.com/)
+
+The WebUI is an explicit part of the scope. It initiates the WebSocket upgrade with a fixed subprotocol, negotiates capabilities via ACP initialization, renders streaming updates, and surfaces permission prompts. SolidJS reactivity is used to keep chat, plans, tool calls, terminal output, and editor state responsive as ACP notifications arrive. Implementations MUST preserve JSON-RPC request and notification semantics over the WebSocket to ensure compatibility across agents and clients. [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) [Agent Client Protocol](https://agentclientprotocol.com/protocol/overview) [SolidJS Docs](https://docs.solidjs.com/) [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+
+The integrated file editor uses ACP client file system methods over the same WebSocket for human-in-the-loop reads and writes, with user approval gates surfaced by the WebUI to mediate sensitive operations. This keeps editor flows aligned with ACP while avoiding extra transports, and mirrors established JSON-RPC patterns for method calls and one-way updates that are already defined by the protocol. [Agent Client Protocol](https://agentclientprotocol.com/) [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+#+END_SRC

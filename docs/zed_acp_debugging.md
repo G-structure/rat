@@ -31,7 +31,7 @@ npm install
 
 ### Debug Build Configuration
 
-Enable debug features in Zed (`/Users/luc/projects/vibes/zed/crates/zed/src/main.rs`):
+Enable debug features in Zed (`zed/crates/zed/src/main.rs`):
 
 ```rust
 // Debug assertions affect ACP behavior
@@ -45,7 +45,7 @@ Enable debug features in Zed (`/Users/luc/projects/vibes/zed/crates/zed/src/main
 
 Zed uses a structured logging system with multiple levels and scopes. ACP-related logging is distributed across several crates:
 
-#### Agent Servers Logging (`/Users/luc/projects/vibes/zed/crates/agent_servers/src/acp.rs`)
+#### Agent Servers Logging (`zed/crates/agent_servers/src/acp.rs`)
 
 **Process Launch Logging**:
 ```rust
@@ -72,7 +72,7 @@ let stderr_task = cx.background_spawn(async move {
 - Uses `log::warn!` level for visibility
 - Runs in background task to avoid blocking
 
-#### Gemini-Specific Logging (`/Users/luc/projects/vibes/zed/crates/agent_servers/src/gemini.rs`)
+#### Gemini-Specific Logging (`zed/crates/agent_servers/src/gemini.rs`)
 
 **Version Validation** (`gemini.rs:106`):
 ```rust
@@ -86,7 +86,7 @@ log::debug!("gemini --help stdout: {help_stdout:?}");
 log::debug!("gemini --help stderr: {help_stderr:?}");
 ```
 
-#### Agent2 Thread Logging (`/Users/luc/projects/vibes/zed/crates/agent2/src/thread.rs`)
+#### Agent2 Thread Logging (`zed/crates/agent2/src/thread.rs`)
 
 **Detailed Operation Logging**:
 ```rust
@@ -142,7 +142,7 @@ zed --log-filter "agent_servers=trace" 2>&1
 
 ### ACP Logs Tool
 
-Zed includes a built-in ACP protocol inspector (`/Users/luc/projects/vibes/zed/crates/acp_tools/src/acp_tools.rs`):
+Zed includes a built-in ACP protocol inspector (`zed/crates/acp_tools/src/acp_tools.rs`):
 
 #### Accessing ACP Logs
 ```rust
@@ -228,7 +228,7 @@ tcpdump -i lo0 port 8080 -w acp_traffic.pcap
 
 ### Token Usage Monitoring
 
-Zed tracks token usage for performance analysis (`/Users/luc/projects/vibes/zed/crates/acp_thread/src/acp_thread.rs:739-758`):
+Zed tracks token usage for performance analysis (`zed/crates/acp_thread/src/acp_thread.rs`):
 
 ```rust
 let warning_threshold: f32 = std::env::var("ZED_THREAD_WARNING_THRESHOLD")
@@ -248,7 +248,7 @@ if self.used_tokens as f32 / self.max_tokens as f32 >= warning_threshold {
 
 ### Tool Execution Profiling
 
-Track tool execution performance (`/Users/luc/projects/vibes/zed/crates/agent2/src/thread.rs:1285`):
+Track tool execution performance (`zed/crates/agent2/src/thread.rs`):
 
 ```rust
 log::debug!("Tool finished {:?}", tool_result);
@@ -316,7 +316,7 @@ log::debug!("ACP request took {:?}", duration);
 - Incorrect key format
 - Expired credentials
 
-**Debug Steps** (`/Users/luc/projects/vibes/zed/crates/agent_servers/src/claude.rs:110-113`):
+**Debug Steps** (`zed/crates/agent_servers/src/claude.rs`):
 ```rust
 command
     .env
@@ -390,7 +390,7 @@ command
 
 ### End-to-End Tests
 
-Zed includes comprehensive E2E tests (`/Users/luc/projects/vibes/zed/crates/agent_servers/src/e2e_tests.rs`):
+Zed includes comprehensive E2E tests (`zed/crates/agent_servers/src/e2e_tests.rs`):
 
 #### Test Categories
 - **Basic functionality**: Message sending, response handling
@@ -420,7 +420,7 @@ crate::common_e2e_tests!(async |_, _, _| Gemini, allow_option_id = "proceed_once
 
 Individual components have unit tests:
 
-#### Protocol Testing (`/Users/luc/projects/vibes/agent-client-protocol/rust/rpc_tests.rs`)
+#### Protocol Testing (`agent-client-protocol/rust/rpc_tests.rs`)
 - JSON-RPC message serialization
 - Error handling validation
 - Protocol compliance checks
@@ -446,7 +446,7 @@ zed --dev
 
 ## Error Codes and Troubleshooting
 
-### ACP Error Codes (`/Users/luc/projects/vibes/agent-client-protocol/rust/error.rs`)
+### ACP Error Codes (`agent-client-protocol/rust/error.rs`)
 
 #### Standard JSON-RPC Errors
 - **-32700 (PARSE_ERROR)**: Invalid JSON received

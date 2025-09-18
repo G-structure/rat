@@ -10,7 +10,7 @@ Zed's ACP integration is built around several key components:
 
 - **AcpThread** (`zed/crates/acp_thread/src/acp_thread.rs`): Core thread management handling session lifecycle, message processing, and tool call execution. Manages connection state, handles session updates, and coordinates between UI and agent.
 
-- **AgentConnection Trait** (`zed/crates/acp_thread/src/connection.rs`): Defines the interface for agent communication with methods like `authenticate()`, `prompt()`, `new_thread()`, and session management operations.
+- **AgentConnection Trait** (`zed/crates/acp_thread/src/connection.rs`): Defines the interface for agent communication with methods like `authenticate()`, `prompt()`, `new_session()`, and session management operations.
 
 - **ThreadView** (`zed/crates/agent_ui/src/acp/thread_view.rs`): UI layer managing thread states (`Loading`, `Ready`, `Unauthenticated`, `LoadError`) and authentication flows. Handles user interactions and state transitions.
 
@@ -36,7 +36,7 @@ The protocol layer (`agent-client-protocol/typescript/acp.ts`) defines:
 When a user initiates an ACP session in Zed:
 
 ```rust
-// From acp_thread.rs:55-90
+// From acp_thread.rs
 pub struct AcpThread {
     connection: Rc<dyn AgentConnection>,
     session_id: acp::SessionId,
@@ -50,7 +50,7 @@ The `AcpThread::new()` method creates a new thread with an `AgentConnection`. Th
 During session creation, the Claude ACP agent performs credential validation:
 
 ```typescript
-// From acp-agent.ts:99-106
+// From acp-agent.ts
 async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     if (
       fs.existsSync(path.resolve(os.homedir(), ".claude.json.backup")) &&
@@ -68,7 +68,7 @@ If `.claude.json` is missing, `RequestError.authRequired()` is thrown, signaling
 Zed's UI responds to authentication requirements:
 
 ```rust
-// From thread_view.rs:304-311
+// From thread_view.rs
 enum ThreadState {
     Loading(Entity<LoadingView>),
     Ready { thread: Entity<AcpThread>, title_editor: Option<Entity<Editor>>, _subscriptions: Vec<Subscription> },
@@ -83,7 +83,7 @@ The thread state transitions to `ThreadState::Unauthenticated`, displaying authe
 Zed presents available authentication methods to the user:
 
 ```rust
-// From thread_view.rs:3567-3580
+// From thread_view.rs
 fn authenticate(&mut self, method: acp::AuthMethodId, window: &mut Window, cx: &mut Context<Self>) {
     // Handle different auth methods
     if method.0.as_ref() == "claude-login" {
@@ -101,7 +101,7 @@ For `claude-login`, Zed spawns a terminal running `claude /login`.
 Zed executes the login command in a terminal:
 
 ```rust
-// From thread_view.rs:3614-3650
+// From thread_view.rs
 fn spawn_claude_login(workspace: &Entity<Workspace>, window: &mut Window, cx: &mut App) -> Task<Result<()>> {
     // Creates terminal panel, executes login command
     let terminal = terminal_panel.update_in(cx, |terminal_panel, window, cx| {

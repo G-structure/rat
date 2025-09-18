@@ -1,6 +1,6 @@
 #+BEGIN_SRC text
 #+TITLE: RAT2E Remote Control via Hosted Relay — Software Design Specification
-#+SUBTITLE: Version 1.0.4
+#+SUBTITLE: Version 1.0.5
 #+AUTHOR: RAT2E Working Group
 #+DATE: 2025-09-16
 #+OPTIONS: toc:3 num:t ^:nil
@@ -83,12 +83,12 @@ Assume an honest-but-curious relay and untrusted networks. Objectives: confident
 - =RAT2E-REQ-002 ("Attach tokens")= (CT-RELAY): Browser attaches MUST be admitted only with a short-TTL, single-use attach token scoped to audience =relay= and scope =ws:connect=. The token MUST NOT appear in the URL or cookies. [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750)
 - =RAT2E-REQ-003= (CT-WEB, CT-RAT): After admission, endpoints MUST execute a Noise XX handshake and then encrypt all application frames as WS Binary ciphertext. [Noise Spec PDF](https://noiseprotocol.org/noise.pdf)
 - =RAT2E-REQ-004= (CT-WEB, CT-RAT): The Noise prologue MUST bind =LP("rat2e-v1"), LP(session_id), LP(stksha256), LP(attach_nonce), LP(effective_subprotocol)= exactly. Any mismatch MUST abort the handshake. [Noise Protocol Framework](https://noiseprotocol.org/noise.pdf)
-- =RAT2E-REQ-005= (CT-RELAY): The relay MUST NOT negotiate permessage-deflate on authenticated tunnels. [RFC 7692](https://datatracker.ietf.org/doc/html/rfc7692)
+- =RAT2E-REQ-005= (CT-RELAY): See RAT2E-REQ-001C for compression requirements on authenticated tunnels. [RFC 7692](https://datatracker.ietf.org/doc/html/rfc7692)
 - =RAT2E-REQ-001C= (CT-RELAY): The server MUST disable permessage-deflate for /v1/connect and reject any client offer on authenticated tunnels. [RFC 7692](https://datatracker.ietf.org/doc/html/rfc7692)
 
 ** Pairing and Tokens
 - =RAT2E-REQ-010= (CT-RAT): =POST /v1/pair/start= MUST return {user_code, device_code, relay_ws_url, expires_in, interval}. [RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)
-- =RAT2E-REQ-011 ("complete")= (CT-WEB): =POST /v1/pair/complete= MUST return {session_id, attach_token, relay_ws_url} and invalidate the user_code. [RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)
+- =RAT2E-REQ-011 ("complete")= (CT-WEB): =POST /v1/pair/complete= MUST return {session_id, attach_token, attach_nonce, relay_ws_url, effective_subprotocol} and invalidate the user_code. [RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)
 - =RAT2E-REQ-012= (CT-RELAY): Attach tokens MUST have TTL ≤ 5 minutes, ≥ 128-bit entropy, and be single-use with =jti= replay cache semantics; only hashed token material MAY be stored. [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750)
 - =RAT2E-REQ-011A= (CT-WEB): For resume, CT-WEB MUST obtain a fresh attach ticket via POST /v1/session/attach-ticket before reconnecting. [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750)
 - =RAT2E-REQ-012A= (CT-RELAY): Replay protection MUST be enforced cluster-wide using a distributed TTL store for token and nonce hashes; first-use marking MUST be atomic. [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750) [RFC 4086](https://www.rfc-editor.org/info/rfc4086)
@@ -96,6 +96,19 @@ Assume an honest-but-curious relay and untrusted networks. Objectives: confident
 ** ACP Over Tunnel
 - =RAT2E-REQ-020= (CT-WEB, CT-RAT): ACP JSON-RPC MUST be transported unchanged over the encrypted tunnel. [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html)
 - =RAT2E-REQ-021= (CT-WEB): On reconnect, CT-WEB SHOULD call =initialize= then =session/load= to resume deterministically. [ACP session/load](https://agentclientprotocol.com/protocol/session-setup)
+- =RAT2E-REQ-075= (CT-RAT): If the upstream agent does **not** advertise `loadSession:true` in `initialize`, CT-RAT **MUST** still implement `session/load` toward CT-WEB by persisting and replaying the exact sequence of `session/update` notifications previously sent on that session. Replay MUST be lossless, ordered, and idempotent. [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+- =RAT2E-REQ-076= (CT-RAT): During `initialize` (browser→RAT), CT-RAT **MUST** include `agentLoadSession:false|true` as seen upstream and **MAY** include `replayShim:{storage:"memory|disk", retention:{maxEvents,maxAgeSeconds}}` to signal local replay capabilities to CT-WEB. Fields are advisory and do not change ACP semantics. [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+- =RAT2E-REQ-077= (CT-RAT): Shim storage MUST assign a strictly increasing `seq` per `sessionId` and persist envelopes `{seq, ts, kind, direction, body, msg_id?}`; plan updates MUST be treated as **replace-on-update** (client replaces entire plan). Tool call updates MUST be applied by `toolCallId`. [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+- =RAT2E-REQ-078= (CT-WEB): On reconnect, CT-WEB **MUST** call `initialize` then `session/load { sessionId }` and accept a replay stream consisting only of prior `session/update` notifications before continuing live traffic. CT-WEB MUST de-duplicate tool call updates by `toolCallId` and treat plan events as replace. [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+- =RAT2E-REQ-079= (CT-RAT): Cancellation semantics under the shim: after `session/cancel`, RAT MUST respond to the in-flight `session/prompt` with `stopReason:"cancelled"` and emit no additional "new state" updates during replay beyond what was already recorded. [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+- =RAT2E-REQ-080= (CT-RAT): File paths in any replayed `fs/*`-related content or tool locations MUST remain absolute; RAT MUST not normalize or rewrite historical paths during replay. [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+- =RAT2E-REQ-081= (CT-RELAY): No change — the Relay MUST continue to blind-forward ciphertext; replay is entirely between CT-WEB and CT-RAT at the ACP layer. [Noise Protocol Framework](https://noiseprotocol.org/noise.pdf) [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455)
+
+*** ACP Semantics Clarifications (Normative)
+- Plan replace semantics: every `plan` update replaces the entire plan model. [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+- Permission flow: after `session/cancel`, clients MUST answer any pending `session/request_permission` with `outcome:"cancelled"`. [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+- Tool call lifecycle: statuses are finite and monotonic (`pending→in_progress→completed|failed`); CT-WEB MUST render only valid transitions. [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+- Absolute paths required for all file/locations; 1-based line numbers. [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
 
 ** Web UI ACP Implementation
 - =RAT2E-REQ-022= (CT-WEB): The Browser Web UI MUST speak ACP as a client, implementing all ACP messages defined in the official "@zed-industries/agent-client-protocol" npm package (version 0.3.1-alpha.1 or later) for ACP protocol implementation. [ACP Protocol](https://agentclientprotocol.com/)
@@ -168,7 +181,7 @@ Requests and responses:
 
 ** Attach (WebSocket) — Flow (Normative)
 - Browser request: GET /v1/connect?session_id=... with Sec-WebSocket-Protocol: effective_subprotocol; must include a valid Origin. Server MUST echo the exact token or close with 1008. MUST NOT negotiate permessage-deflate. [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) [RFC 7692](https://datatracker.ietf.org/doc/html/rfc7692)
-- RAT request: GET /v1/connect?device_code=... with Sec-WebSocket-Protocol: acp.jsonrpc.v1. [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455)
+- RAT request: GET /v1/connect?device_code=... with Sec-WebSocket-Protocol: acp.jsonrpc.v1. RAT MUST NOT offer permessage-deflate either, to avoid accidental negotiation if the server misconfigures. [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) [RFC 7692](https://datatracker.ietf.org/doc/html/rfc7692)
 
 Subprotocol ABNF:
 subprotocol = "acp.jsonrpc.v1" "." "stksha256" "." base64url_nopad
@@ -179,7 +192,12 @@ The "stksha256" component is BASE64URL_NOPAD(SHA-256(attach_token)); no "=" padd
 Pattern XX with static keys. Each side pins the peer's static key from pairing. prologue = LP("rat2e-v1") || LP(session_id) || LP(stksha256) || LP(attach_nonce) || LP(effective_subprotocol) LP(x) = 2-byte big-endian length || bytes(x); stksha256 = BASE64URL_NOPAD(SHA-256(attach_token)). Both peers learn attach_nonce + effective_subprotocol during pairing; the raw attach_token stays in-browser. [Noise Protocol Framework](https://noiseprotocol.org/noise.pdf) [RFC 4648 §5](https://datatracker.ietf.org/doc/html/rfc4648#section-5)
 
 ** ACP Resume
-On reconnect, CT-WEB calls ~initialize~ then ~session/load { sessionId }~ and continues processing streamed ~session/update~. [ACP session/load](https://agentclientprotocol.com/protocol/session-setup)
+CT-RAT acts as the ACP server to CT-WEB. If the upstream agent lacks `loadSession`, CT-RAT SHALL emulate `session/load` by replaying previously recorded `session/update` envelopes for the `sessionId`, then respond `null`. Replay MUST be complete and ordered; plan updates are replace-on-update. [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+
+** Replay Algorithm (CT-RAT)
+1) On `session/new`, start `seq=1`. Record all outbound `session/update` notifications as envelopes (ordered).
+2) On `session/load`, stream envelopes from `seq=1..head` to CT-WEB, preserving original order; never synthesize new updates.
+3) After replay completion, switch to live pass-through (record+forward). [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
 
 * HTTP API (Normative)
 ** Relay HTTP and WS
@@ -187,12 +205,16 @@ On reconnect, CT-WEB calls ~initialize~ then ~session/load { sessionId }~ and co
 ** File REST (browser-facing)
 - =GET /api/files?path=dir=, =GET /api/file-content?path=path=, =POST /api/save-file= ~{ path, content }~, =GET /api/markdown-files?path=dir=, =POST /api/markdown-content= ~{ files: string[] }~. [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html)
 
+* Control Namespace (Reserved, Optional)
+If you need explicit paging or offsets from browsers: reserve `acp.cache.*` as **pass-through, JSON-RPC** methods: `acp.cache.fetch`, `acp.cache.subscribe`, `acp.cache.ack`. CT-RAT MAY implement these locally when no backend cache is deployed; when a backend cache exists, CT-RAT MUST forward them. Do **not** put any of this into the WS subprotocol. [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+
 * Data Model (Normative)
 - ~user_codes: Map<user_code, { device_code, exp_ts }>~
 - ~devices: Map<device_code, { rat_pubkey_b64, caps[], exp_ts }>~
 - ~sessions: Map<session_id, { device_code, attach_token_hash, attach_nonce_hash, effective_subprotocol, created_ts, used:boolean, exp_ts }>~
 - ~presence: Map<agent_id, { last_seen, status, caps? }>~
 - ~viewers: Map<viewer_token_id, { tenant_id, scopes[], exp_ts }>~ when presence auth is enabled. Rows are TTL-swept. Token storage SHOULD be hashed. [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750)
+- ~shim_envelopes: Map<(sessionId, seq), { ts:rfc3339, direction:"agent_to_client"|"client_to_agent", kind:"notification"|"result"|"request", body:JSON, msg_id?:uuid, checksum?:blake3(body) }>~ for RAT-side replay shim. Primary key: (sessionId, seq); de-dup index on msg_id when present. Storage: memory ring buffer for MVP; disk (SQLite WAL) or Postgres for durability. [SQLite WAL](https://sqlite.org/wal.html) [PostgreSQL WAL](https://www.postgresql.org/docs/current/wal-intro.html)
 
 * State Machines (Informative)
 - Pairing: CREATED → CLAIMED → ATTACHED → IDLE → EXPIRED. [RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)
@@ -209,10 +231,13 @@ On reconnect, CT-WEB calls ~initialize~ then ~session/load { sessionId }~ and co
 p50 attach or resume ≤ 800 ms; first presence paint ≤ 1.2 s; OFFLINE flip ≤ 35 s; soak target 5k IDLE + 500 ACTIVE without error. [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html)
 
 * Observability (Normative)
-Metrics: ~active_sessions~ (gauge), ~ws_open~ (gauge), ~presence_online~ (gauge), ~bytes_rx_total~ (counter), ~bytes_tx_total~ (counter), ~backpressure_closes_total~ (counter), ~pairing_rate~ (counter), ~origin_rejects_total~ (counter), ~subprotocol_mismatch_total~ (counter), ~replay_detected_total~ (counter), ~attach_ticket_issued_total~ (counter), ~attach_ticket_used_total~ (counter), ~resume_latency_ms~ (histogram with p50/p95/p99). Health: =/health= 200; =/version= { version, commit, build_time }. [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html)
+Metrics: ~active_sessions~ (gauge), ~ws_open~ (gauge), ~presence_online~ (gauge), ~bytes_rx_total~ (counter), ~bytes_tx_total~ (counter), ~backpressure_closes_total~ (counter), ~pairing_rate~ (counter), ~origin_rejects_total~ (counter), ~subprotocol_mismatch_total~ (counter), ~replay_detected_total~ (counter), ~attach_ticket_issued_total~ (counter), ~attach_ticket_used_total~ (counter), ~resume_latency_ms~ (histogram with p50/p95/p99), ~shim_envelopes_stored_total~ (counter), ~shim_replay_latency_seconds~ (histogram), ~shim_storage_bytes~ (gauge). Trace spans: ~rat.shim.ingest~, ~rat.shim.replay~. Health: =/health= 200; =/version= { version, commit, build_time }. [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html) [OTLP Spec](https://opentelemetry.io/docs/specs/otlp/)
 
 * Security Considerations (Normative)
 Admission control with scoped attach tokens and single-use semantics mitigates abuse. Attach artifacts (attach_token, attach_nonce) are sender-constrained by binding stksha256 + attach_nonce + effective_subprotocol into the Noise prologue; replay reuse is prevented by single-use checks at the relay. Strict Origin allow-list and subprotocol echo enforce the browser security model. The relay MUST not retain ACP plaintext. [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750) [RFC 3552](https://datatracker.ietf.org/doc/html/rfc3552) [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455)
+
+** Replay Shim Security
+The shim is within CT-RAT; ACP plaintext already exists there because CT-RAT talks to the agent over stdio. The Relay remains blind; Noise prologue and attach flow are unchanged. If disk persistence is enabled, deployments SHOULD document retention scopes and apply OS-level protections; for remote/durable caches use OIDC on a separate WSS endpoint, not the Relay. [Noise Protocol Framework](https://noiseprotocol.org/noise.pdf) [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) [OpenID Connect Core](https://openid.net/specs/openid-connect-core_1_0.html)
 
 * Privacy Considerations (Informative)
 Store only transient IDs and counters. Presence reveals ONLINE or OFFLINE status and MUST be tenant-scoped at the HTTP layer. [RFC 3552](https://datatracker.ietf.org/doc/html/rfc3552)
@@ -243,6 +268,7 @@ In v1, file payloads are visible to the relay process because the browser calls 
 - Compression: Client offers permessage-deflate → server MUST decline; verify no "Sec-WebSocket-Extensions" in handshake. [RFC 7692](https://datatracker.ietf.org/doc/html/rfc7692)
 - H2 bootstrap: behind an intermediary lacking RFC 8441 → graceful H1.1 fallback. [RFC 8441](https://www.rfc-editor.org/rfc/rfc8441.html)
 - Browser hardening: Trusted Types enabled, Referrer-Policy:no-referrer, COOP/COEP set; pages still function. [MDN Trusted Types](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/trusted-types) [web.dev COOP/COEP](https://web.dev/articles/coop-coep) [MDN Referrer-Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/trusted-types)
+- Replay shim: Upstream w/o `loadSession`: open→prompt→reconnect→`session/load` → expect deterministic replay, identical transcript/tool cards. Plan replace: send multiple `plan` updates; client must not accumulate stale entries. Cancel propagation: cancel during a pending permission; expect `cancelled` outcome & final prompt result `stopReason:"cancelled"`. Persistence toggle: memory vs disk (SQLite WAL) with restart; disk mode replays across process restarts. [SQLite WAL](https://sqlite.org/wal.html)
 
 * Requirements Traceability Matrix (RTM) (Normative)
 | Req ID         | Target     | Verification                                    | Status |
@@ -259,7 +285,7 @@ In v1, file payloads are visible to the relay process because the browser calls 
 | RAT2E-REQ-011  | CT-WEB     | Pair/complete contract test                     | Must   |
 | RAT2E-REQ-011A | CT-WEB     | Reconnect requires /v1/session/attach-ticket    | Must   |
 | RAT2E-REQ-012  | CT-RELAY   | Token entropy or TTL or jti cache               | Must   |
-| RAT2E-REQ-012A | CT-Relay   | Distributed single-use + atomic first-use test  | Must   |
+| RAT2E-REQ-012A | CT-RELAY   | Distributed single-use + atomic first-use test  | Must   |
 | RAT2E-REQ-020  | CT-WEB/RAT | ACP transparency test                           | Must   |
 | RAT2E-REQ-021  | CT-WEB     | Resume determinism integration test             | Should |
 | RAT2E-REQ-022  | CT-WEB     | ACP client implementation with all messages     | Must   |
@@ -281,10 +307,29 @@ In v1, file payloads are visible to the relay process because the browser calls 
 | RAT2E-REQ-051  | CT-RELAY   | Metrics or health endpoints                     | Must   |
 | RAT2E-REQ-060  | CT-WEB     | CryptoKey persistence or WebAuthn wrapping      | Must   |
 | RAT2E-REQ-061  | CT-WEB     | Key reuse on reload or zeroization              | Must   |
+| RAT2E-REQ-075  | CT-RAT     | Replay shim for agents without loadSession      | Must   |
+| RAT2E-REQ-076  | CT-RAT     | Advertise replay capabilities in initialize     | Must   |
+| RAT2E-REQ-077  | CT-RAT     | Shim storage with seq and envelope persistence  | Must   |
+| RAT2E-REQ-078  | CT-WEB     | Accept replay stream on reconnect               | Must   |
+| RAT2E-REQ-079  | CT-RAT     | Cancellation semantics under shim               | Must   |
+| RAT2E-REQ-080  | CT-RAT     | Absolute paths in replayed content              | Must   |
+| RAT2E-REQ-081  | CT-RELAY   | No change to blind forwarding                   | Must   |
 
 [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html)
 
+* Optional Annexes (Informative)
+
+** Backend ACP Cache (durable, multi-device)
+Keep as an optional deployment that terminates ACP plaintext with OIDC/PKCE; identical control namespace (`acp.cache.*`), ordered `seq`, at-least-once delivery, push wakeups (APNs) if mobile. Not part of the Relay. [OpenID Connect Core](https://openid.net/specs/openid-connect-core_1_0.html) [RFC 7636](https://datatracker.ietf.org/doc/html/rfc7636)
+
+** Storage Schemas
+Starter SQLite/Postgres DDL and snapshot cadence to keep replay p50 <200 ms. [PostgreSQL WAL](https://www.postgresql.org/docs/current/wal-intro.html)
+
+** Telemetry
+Metrics & OTLP spans for ingest→persist→fan-out. [OTLP Spec](https://opentelemetry.io/docs/specs/otlp/)
+
 * Change Log (Informative)
+- 1.0.5: Added RAT-side Replay Shim for agents without `loadSession` support; normative requirements 075-081 for deterministic resume via envelope replay; updated ACP Resume protocol details; added shim observability metrics and test cases; clarified plan replace semantics, permission flow, tool call lifecycle, and absolute paths. [JSON-RPC 2.0](https://www.jsonrpc.org/specification) [Noise Protocol Framework](https://noiseprotocol.org/noise.pdf) [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) [SQLite WAL](https://sqlite.org/wal.html) [PostgreSQL WAL](https://www.postgresql.org/docs/current/wal-intro.html) [OpenID Connect Core](https://openid.net/specs/openid-connect-core_1_0.html) [OTLP Spec](https://opentelemetry.io/docs/specs/otlp/)
 - 1.0.4: Added attach_nonce + effective_subprotocol; defined subprotocol ABNF; introduced /v1/pair/poll and /v1/session/attach-ticket; cluster-safe single-use semantics; revised key management (WebCrypto X25519 SHOULD; WASM fallback + zeroization + COOP/COEP, Trusted Types, no-referrer); added observability metrics and backpressure details; fixed REQ ID collisions (Presence now 033/034); clarified H2 bootstrap with H1.1 fallback. [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) [RFC 4648](https://datatracker.ietf.org/doc/html/rfc4648#section-5) [RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628) [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750) [Noise Spec](https://noiseprotocol.org/noise.pdf) [RFC 8441](https://www.rfc-editor.org/rfc/rfc8441.html) [RFC 7692](https://datatracker.ietf.org/doc/html/rfc7692) [MDN](https://developer.mozilla.org/en-US/docs/Web/API/CryptoKey) [web.dev](https://web.dev/articles/coop-coep)
 - 1.0.3: Updated ACP protocol support to include session modes, extensibility features, and switch_mode tool type; aligned with @zed-industries/agent-client-protocol v0.3.1-alpha.1 changes. [ACP Protocol](https://agentclientprotocol.com/)
 - 1.0.2: Added comprehensive Web UI ACP implementation requirements; specified use of @zed-industries/agent-client-protocol TypeScript library (v0.3.1-alpha.1+); documented all ACP message types with corresponding UI elements; added available commands and session modes feature support; updated system diagram to reflect ACP client implementation. [ACP Protocol](https://agentclientprotocol.com/)

@@ -17,16 +17,16 @@ Zed implements the Agent Client Protocol (ACP) to enable integration with extern
 
 The protocol addresses the interoperability challenges in the AI coding ecosystem by providing a common interface that any compatible agent can use to work with any compatible editor. In Zed's implementation, this allows users to leverage powerful AI agents like Claude Code and Gemini CLI directly within the editor environment.
 
-ACP is initialized in Zed's main application startup sequence at `crates/zed/src/main.rs:571`, where `acp_tools::init(cx)` sets up the ACP infrastructure. The protocol follows the JSON-RPC 2.0 specification with bidirectional communication over stdin/stdout, as defined in the `agent-client-protocol` crate (`/Users/luc/projects/vibes/agent-client-protocol/rust/acp.rs`).
+ACP is initialized in Zed's main application startup sequence in `zed/crates/zed/src/main.rs`, where `acp_tools::init(cx)` sets up the ACP infrastructure. The protocol follows the JSON-RPC 2.0 specification with bidirectional communication over stdin/stdout, as defined in the `agent-client-protocol` crate (`agent-client-protocol/rust/acp.rs`).
 
 ### Protocol Architecture
 
 The ACP architecture follows a client-server model where:
 
-- **Client (Zed)**: Implements the `Client` trait (`/Users/luc/projects/vibes/agent-client-protocol/rust/client.rs`) and provides the user interface, file system access, and terminal management
-- **Server (Agent)**: Implements the `Agent` trait (`/Users/luc/projects/vibes/agent-client-protocol/rust/agent.rs`) and handles AI reasoning, tool calls, and conversation management
+- **Client (Zed)**: Implements the `Client` trait (`agent-client-protocol/rust/client.rs`) and provides the user interface, file system access, and terminal management
+- **Server (Agent)**: Implements the `Agent` trait (`agent-client-protocol/rust/agent.rs`) and handles AI reasoning, tool calls, and conversation management
 
-The protocol uses JSON-RPC 2.0 over stdio for transport, with the schema defined in `/Users/luc/projects/vibes/agent-client-protocol/schema/schema.json`. All communication is asynchronous and bidirectional, allowing agents to stream responses and request permissions in real-time.
+The protocol uses JSON-RPC 2.0 over stdio for transport, with the schema defined in `agent-client-protocol/schema/schema.json`. All communication is asynchronous and bidirectional, allowing agents to stream responses and request permissions in real-time.
 
 ### Key Protocol Concepts
 
@@ -55,15 +55,15 @@ Zed's ACP implementation relies on several key components organized across multi
 
 The foundational crate providing the ACP protocol implementation:
 
-- **Location**: `/Users/luc/projects/vibes/agent-client-protocol/rust/`
+- **Location**: `agent-client-protocol/rust/`
 - **Key Files**:
   - `acp.rs`: Main protocol implementation with `ClientSideConnection` and `AgentSideConnection`
   - `agent.rs`: Defines the `Agent` trait with methods like `initialize`, `new_session`, `prompt`
   - `client.rs`: Defines the `Client` trait with methods like `request_permission`, `write_text_file`, `create_terminal`
   - `rpc.rs`: JSON-RPC 2.0 transport layer implementation
   - `error.rs`: Structured error types and codes
-- **Schema**: `/Users/luc/projects/vibes/agent-client-protocol/schema/schema.json` defines the complete protocol structure
-- **Documentation**: `/Users/luc/projects/vibes/agent-client-protocol/docs/` contains comprehensive protocol documentation
+- **Schema**: `agent-client-protocol/schema/schema.json` defines the complete protocol structure
+- **Documentation**: `agent-client-protocol/docs/` contains comprehensive protocol documentation
 
 The protocol uses JSON-RPC 2.0 over stdio with the following key types:
 - `InitializeRequest/Response`: Protocol negotiation
@@ -75,7 +75,7 @@ The protocol uses JSON-RPC 2.0 over stdio with the following key types:
 ### Zed-Specific Crates
 
 #### `acp_thread` - Thread Management
-- **Location**: `/Users/luc/projects/vibes/zed/crates/acp_thread/src/`
+- **Location**: `zed/crates/acp_thread/src/`
 - **Key Components**:
   - `AcpThread` struct: Manages individual conversation threads
   - `AgentConnection` trait: Abstract interface for agent connections
@@ -88,7 +88,7 @@ The protocol uses JSON-RPC 2.0 over stdio with the following key types:
   - Real-time UI updates via GPUI entities
 
 #### `agent2` - Core Agent Logic
-- **Location**: `/Users/luc/projects/vibes/zed/crates/agent2/src/`
+- **Location**: `zed/crates/agent2/src/`
 - **Key Components**:
   - `Agent` struct: Main agent implementation
   - Tool implementations in `/tools/` subdirectory
@@ -97,11 +97,12 @@ The protocol uses JSON-RPC 2.0 over stdio with the following key types:
 - **Tool Categories**:
   - File operations: `read_file_tool.rs`, `edit_file_tool.rs`, `grep_tool.rs`
   - Terminal: `terminal_tool.rs`
-  - Development: `diagnostics_tool.rs`, `fetch_tool.rs`
+  - Web: `web_search_tool.rs`, `fetch_tool.rs`
+  - Development: `diagnostics_tool.rs`
   - Context: `find_path_tool.rs`, `list_directory_tool.rs`
 
 #### `agent_servers` - Agent Launching
-- **Location**: `/Users/luc/projects/vibes/zed/crates/agent_servers/src/`
+- **Location**: `zed/crates/agent_servers/src/`
 - **Key Components**:
   - `AcpConnection`: Manages JSON-RPC connections to agents
   - `AgentServer` enum: Different agent types (ClaudeCode, Gemini)
@@ -113,7 +114,7 @@ The protocol uses JSON-RPC 2.0 over stdio with the following key types:
   - Authentication handling
 
 #### `agent_ui` - User Interface
-- **Location**: `/Users/luc/projects/vibes/zed/crates/agent_ui/src/`
+- **Location**: `zed/crates/agent_ui/src/`
 - **Key Components**:
   - `AcpThreadView`: Main conversation interface
   - `MessageEditor`: Rich prompt composition
@@ -125,7 +126,7 @@ The protocol uses JSON-RPC 2.0 over stdio with the following key types:
   - Tool call visualization
 
 #### `acp_tools` - ACP Tools Integration
-- **Location**: `/Users/luc/projects/vibes/zed/crates/acp_tools/src/`
+- **Location**: `zed/crates/acp_tools/src/`
 - **Key Components**:
   - `AcpConnectionRegistry`: Global connection management
   - `AcpTools`: Developer tools for ACP debugging
@@ -137,7 +138,7 @@ The protocol uses JSON-RPC 2.0 over stdio with the following key types:
 ### External Agent Adapters
 
 #### `@zed-industries/claude-code-acp` - Claude Code Adapter
-- **Location**: `/Users/luc/projects/vibes/claude-code-acp/src/`
+- **Location**: `claude-code-acp/src/`
 - **Key Files**:
   - `acp-agent.ts`: Main ACP agent implementation
   - `mcp-server.ts`: MCP server proxy for Claude Code
@@ -149,7 +150,7 @@ The protocol uses JSON-RPC 2.0 over stdio with the following key types:
   - Handles authentication and session management
 
 #### Gemini CLI Integration
-- **Location**: `/Users/luc/projects/vibes/zed/crates/agent_servers/src/gemini.rs`
+- **Location**: `zed/crates/agent_servers/src/gemini.rs`
 - **Features**:
   - Launches Gemini CLI with `--experimental-acp` flag
   - Version checking and capability detection
@@ -508,7 +509,7 @@ Below is the ACP tool set with direct code references and their ACP kinds.
   - Path: `zed/crates/agent2/src/tools/now_tool.rs`
   - Returns current time in RFC3339, with timezone selection.
 
-#### File System Operations (`/Users/luc/projects/vibes/zed/crates/agent2/src/tools/`)
+#### File System Operations (`zed/crates/agent2/src/tools/`)
 
 **Read File Tool** (`read_file_tool.rs`):
 - Implements `fs/read_text_file` protocol method

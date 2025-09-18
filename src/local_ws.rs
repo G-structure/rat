@@ -301,37 +301,47 @@ where
     let ws_to_agent = tokio::spawn(async move {
         while let Some(msg) = ws_read.next().await {
             match msg {
-                Ok(Message::Text(text)) => {
-                    // Intercept permission responses addressed to local bridge
-                    let mut intercepted = false;
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
-                        let is_response = v.get("method").is_none() && v.get("id").is_some();
-                        if is_response {
-                            let id_str = id_key(&v["id"]).unwrap_or_default();
-                            if let Some(tx) = perms_for_ws.lock().await.remove(&id_str) {
-                                let mut allowed = false;
-                                if let Some(res) = v.get("result") {
-                                    if res.get("outcome").and_then(|o| o.get("cancelled")).and_then(|b| b.as_bool()) == Some(true) {
-                                        allowed = false;
-                                    } else if let Some(sel) = res.get("outcome").and_then(|o| o.get("selected")) {
-                                        let opt = sel.get("optionId").and_then(|s| s.as_str()).unwrap_or("").to_lowercase();
-                                        // Accept common allow variants (ACP may use allow/allow_once/allow_always)
-                                        allowed = opt == "allow"
-                                            || opt.starts_with("allow")
-                                            || opt == "yes"
-                                            || opt == "ok"
-                                            || opt == "approve";
-                                        if !allowed {
-                                            warn!("🔧 LOCAL DEV: permission response optionId='{}' not recognized as allow; treating as deny", opt);
-                                        }
-                                    }
-                                }
-                                let _ = tx.send(allowed);
-                                intercepted = true;
-                            }
-                        }
-                    }
-                    if intercepted { continue; }
+                 Ok(Message::Text(text)) => {
+                     warn!("🔧 LOCAL DEV: WS received: {}", text);
+                      // Intercept permission responses addressed to local bridge
+                      let mut intercepted = false;
+                      if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                          let is_response = v.get("method").is_none() && v.get("id").is_some();
+                          if is_response {
+                              let id_str = id_key(&v["id"]).unwrap_or_default();
+                              // Only intercept responses to permission requests that WE sent
+                              if let Some(tx) = perms_for_ws.lock().await.remove(&id_str) {
+                                  warn!("🔧 LOCAL DEV: Intercepted permission response for id {}", id_str);
+                                  let mut allowed = false;
+                                  if let Some(res) = v.get("result") {
+                                      if res.get("outcome").and_then(|o| o.get("cancelled")).and_then(|b| b.as_bool()) == Some(true) {
+                                          allowed = false;
+                                      } else if let Some(outcome) = res.get("outcome") {
+                                          if let Some(outcome_type) = outcome.get("outcome").and_then(|o| o.as_str()) {
+                                              if outcome_type == "selected" {
+                                                  let opt = outcome.get("optionId").and_then(|s| s.as_str()).unwrap_or("").to_lowercase();
+                                                  warn!("🔧 LOCAL DEV: Parsed optionId: {}", opt);
+                                                  // Accept common allow variants (ACP may use allow/allow_once/allow_always)
+                                                  allowed = opt == "allow"
+                                                      || opt.starts_with("allow")
+                                                      || opt == "yes"
+                                                      || opt == "ok"
+                                                      || opt == "approve";
+                                                  if !allowed {
+                                                      warn!("🔧 LOCAL DEV: permission response optionId='{}' not recognized as allow; treating as deny", opt);
+                                                  }
+                                              }
+                                          }
+                                      }
+                                  }
+                                  warn!("🔧 LOCAL DEV: Sending allowed={} for id {}", allowed, id_str);
+                                  let _ = tx.send(allowed);
+                                  intercepted = true;
+                              }
+                              // If it's not a response to our permission request, don't intercept it
+                          }
+                      }
+                     if intercepted { continue; }
                     if let Err(e) = stdin_for_ws.lock().await.write_all(text.as_bytes()).await {
                         warn!("🔧 LOCAL DEV: stdin write error: {}", e);
                         break;

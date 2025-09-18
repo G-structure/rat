@@ -8,20 +8,35 @@ Zed's ACP implementation provides multiple layers of extensibility, allowing dev
 
 ### Tool Interface Architecture
 
-Zed's tool system is built around the `AgentTool` trait (`/Users/luc/projects/vibes/zed/crates/agent2/src/lib.rs`):
+Zed's tool system is built around the `AgentTool` trait (`zed/crates/agent2/src/thread.rs`):
 
 ```rust
-pub trait AgentTool: Send + Sync {
-    fn name(&self) -> SharedString;
+pub trait AgentTool
+where
+    Self: 'static + Sized,
+{
+    type Input: for<'de> Deserialize<'de> + Serialize + JsonSchema;
+    type Output: for<'de> Deserialize<'de> + Serialize + Into<LanguageModelToolResultContent>;
+
+    fn name() -> &'static str;
     fn description(&self) -> SharedString;
-    fn tool_kind(&self) -> ToolKind;
-    fn input_schema(&self) -> serde_json::Value;
+    fn kind() -> acp::ToolKind;
+    fn initial_title(&self, input: Result<Self::Input, serde_json::Value>) -> SharedString;
+    fn input_schema(&self, format: LanguageModelToolSchemaFormat) -> Schema;
+    fn supported_provider(&self, _provider: &LanguageModelProviderId) -> bool { true }
     fn run(
-        &self,
-        input: serde_json::Value,
+        self: Arc<Self>,
+        input: Self::Input,
         event_stream: ToolCallEventStream,
-        cx: &mut AsyncApp,
-    ) -> Task<Result<AgentToolOutput>>;
+        cx: &mut App,
+    ) -> Task<Result<Self::Output>>;
+    fn replay(
+        &self,
+        _input: Self::Input,
+        _output: Self::Output,
+        _event_stream: ToolCallEventStream,
+        _cx: &mut App,
+    ) -> Result<()> { Ok(()) }
 }
 ```
 
@@ -56,29 +71,20 @@ pub struct MyCustomTool {
 }
 
 impl AgentTool for MyCustomTool {
-    fn name(&self) -> SharedString {
-        "my_custom_tool".into()
-    }
+    type Input = MyCustomToolInput;
+    type Output = String; // Or a struct that implements Into<LanguageModelToolResultContent>
 
-    fn description(&self) -> SharedString {
-        "Description of what my tool does".into()
+    fn name() -> &'static str { "my_custom_tool" }
+    fn description(&self) -> SharedString { "Description of what my tool does".into() }
+    fn kind() -> ToolKind { ToolKind::Other }
+    fn initial_title(&self, input: Result<Self::Input, serde_json::Value>) -> SharedString {
+        match input { Ok(_) => "My Custom Tool".into(), Err(_) => "My Custom Tool".into() }
     }
-
-    fn tool_kind(&self) -> ToolKind {
-        ToolKind::Other  // Or appropriate ToolKind
+    fn input_schema(&self, format: LanguageModelToolSchemaFormat) -> Schema {
+        crate::tool_schema::root_schema_for::<Self::Input>(format)
     }
-
-    fn input_schema(&self) -> serde_json::Value {
-        schemars::schema_for!(MyCustomToolInput).into()
-    }
-
-    fn run(
-        &self,
-        input: serde_json::Value,
-        event_stream: ToolCallEventStream,
-        cx: &mut AsyncApp,
-    ) -> Task<Result<AgentToolOutput>> {
-        // Tool implementation
+    fn run(self: Arc<Self>, input: Self::Input, _event_stream: ToolCallEventStream, _cx: &mut App) -> Task<Result<Self::Output>> {
+        Task::ready(Ok(format!("Ran with {}", input.parameter)))
     }
 }
 ```
@@ -88,7 +94,7 @@ impl AgentTool for MyCustomTool {
 Tools communicate progress through the `ToolCallEventStream`:
 
 ```rust
-// From tool_call.rs in agent-client-protocol
+// From agent-client-protocol/rust/tool_call.rs
 pub enum ToolCallUpdate {
     Started { content: ToolCallContent },
     Progress { content: ToolCallContent },
@@ -101,7 +107,7 @@ pub enum ToolCallUpdate {
 
 #### File System Tools
 
-**ReadFileTool** (`/Users/luc/projects/vibes/zed/crates/agent2/src/tools/read_file_tool.rs`):
+**ReadFileTool** (`zed/crates/agent2/src/tools/read_file_tool.rs`):
 
 ```rust
 impl AgentTool for ReadFileTool {
@@ -112,7 +118,7 @@ impl AgentTool for ReadFileTool {
 }
 ```
 
-**EditFileTool** (`/Users/luc/projects/vibes/zed/crates/agent2/src/tools/edit_file_tool.rs`):
+**EditFileTool** (`zed/crates/agent2/src/tools/edit_file_tool.rs`):
 
 ```rust
 impl AgentTool for EditFileTool {
@@ -125,7 +131,7 @@ impl AgentTool for EditFileTool {
 
 #### Terminal Tools
 
-**TerminalTool** (`/Users/luc/projects/vibes/zed/crates/agent2/src/tools/terminal_tool.rs`):
+**TerminalTool** (`zed/crates/agent2/src/tools/terminal_tool.rs`):
 
 ```rust
 impl AgentTool for TerminalTool {
@@ -139,7 +145,7 @@ impl AgentTool for TerminalTool {
 
 #### Development Tools
 
-**DiagnosticsTool** (`/Users/luc/projects/vibes/zed/crates/agent2/src/tools/diagnostics_tool.rs`):
+**DiagnosticsTool** (`zed/crates/agent2/src/tools/diagnostics_tool.rs`):
 
 ```rust
 impl AgentTool for DiagnosticsTool {
@@ -180,7 +186,7 @@ Zed's ACP UI is built with GPUI and provides several extension points:
 
 #### Thread View Customization
 
-The `AcpThreadView` (`/Users/luc/projects/vibes/zed/crates/agent_ui/src/acp/thread_view.rs`) supports:
+The `AcpThreadView` (`zed/crates/agent_ui/src/acp/thread_view.rs`) supports:
 
 - **Message Rendering**: Custom renderers for different content types
 - **Tool Call Visualization**: Pluggable UI for tool execution displays
@@ -198,7 +204,7 @@ The message editor supports:
 ACP UI components integrate with Zed's theming system:
 
 ```rust
-// From thread_view.rs:3046-3050
+// From thread_view.rs
 let theme_settings = ThemeSettings::get_global(cx);
 let text_style = window.text_style();
 let colors = cx.theme().colors();
@@ -237,7 +243,7 @@ UI components support custom event handlers:
 
 ### ACP Protocol Extensibility
 
-The ACP protocol supports extensions through the `ext` module (`/Users/luc/projects/vibes/agent-client-protocol/rust/ext.rs`):
+The ACP protocol supports extensions through the `ext` module (`agent-client-protocol/rust/ext.rs`):
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -310,7 +316,7 @@ pub struct ClientCapabilities {
 
 ### Claude Code Adapter Extensions
 
-The Claude Code adapter (`/Users/luc/projects/vibes/claude-code-acp/src/acp-agent.ts`) demonstrates protocol extensions:
+The Claude Code adapter (`claude-code-acp/src/acp-agent.ts`) demonstrates protocol extensions:
 
 ```typescript
 async initialize(request: InitializeRequest): Promise<InitializeResponse> {
