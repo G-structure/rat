@@ -209,6 +209,33 @@ Next:
 - Next:
   - If desired, I can patch the web UI to log permission responses and add a small status toast on accept/reject.
 
+## 2025‑09‑17 — rat‑web UI: Plan and Diff views
+
+- Task: Ensure spec-required UI elements are present; make planning UI functional; expose edit diff view.
+- Context: spec_done.md requires ACP UI elements: chat, plan, terminal, permissions, commands, modes, and visible file edit/diff information.
+- Changes:
+  - rat-web/src/components/DiffView.tsx: fixed to read diffs for active session and render path + diff text; added empty state.
+  - rat-web/src/App.tsx: added Diffs tab and integrated DiffView into the main content area.
+  - rat-web/src/state.ts: added setPlanItemStatusFor(sessionId,itemId,status) to update a single plan item in-place.
+  - rat-web/src/components/PlanPanel.tsx: items are now clickable to cycle status pending → in_progress → completed, reflecting “functional” plan UI.
+- Verification:
+  - Connect to WS, start a session, observe Plan updates via session/update; click items to cycle status and see badge/color/text change.
+  - When agent sends a diff in session/update, select Diffs tab and verify it renders the file path and diff text.
+- Remaining:
+  - Command slash invocation UX is minimal (list only). Could add a palette and /command prefill.
+  - Diff accept/apply is not implemented (requires patch format and apply pipeline).
+- Next:
+  - Add a basic “Apply edit” button when ContentBlock::Diff is present with new_text/old_text, mapped to fs/write_text_file with browser permission.
+
+## 2025‑09‑17 — Permission approval robustness
+
+- Task: Harden local WS permission handling to recognize more “allow” variants and add client-side visibility when responding.
+- Changes:
+  - src/local_ws.rs: accept optionId values starting with "allow" (allow_once/allow_always) in addition to allow/yes/ok; add warning log when unrecognized.
+  - rat-web/src/lib/ws.ts: log outgoing permission responses (id and optionId) for easier debugging.
+- Rationale: Some agents surface option ids like allow_always; previously the bridge only accepted exact "allow" and would treat others as deny.
+- Verification: Click “Always Allow” in the UI on a bridge-synthesized permission; observe approval now succeeds.
+
 ## 2025‑09‑17 — Add Local Solid (Vite) Web UI
 
 Task: Provide a minimal browser UI (SolidJS via Vite) that connects to RAT's local WebSocket (`--local-ws`) using `Sec-WebSocket-Protocol: acp.jsonrpc.v1`, with basic send/receive JSON‑RPC.

@@ -315,7 +315,15 @@ where
                                         allowed = false;
                                     } else if let Some(sel) = res.get("outcome").and_then(|o| o.get("selected")) {
                                         let opt = sel.get("optionId").and_then(|s| s.as_str()).unwrap_or("").to_lowercase();
-                                        allowed = matches!(opt.as_str(), "allow" | "yes" | "ok");
+                                        // Accept common allow variants (ACP may use allow/allow_once/allow_always)
+                                        allowed = opt == "allow"
+                                            || opt.starts_with("allow")
+                                            || opt == "yes"
+                                            || opt == "ok"
+                                            || opt == "approve";
+                                        if !allowed {
+                                            warn!("🔧 LOCAL DEV: permission response optionId='{}' not recognized as allow; treating as deny", opt);
+                                        }
                                     }
                                 }
                                 let _ = tx.send(allowed);

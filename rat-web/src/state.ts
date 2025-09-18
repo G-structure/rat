@@ -69,6 +69,15 @@ export function upsertPlanFor(id: string, items: PlanItem[]) {
     [id]: { ...(prev[id] ?? { messages: [], plan: [], terminal: [], commands: [], availableModes: [], currentMode: null, diffs: [] }), plan: items },
   }));
 }
+
+export function setPlanItemStatusFor(id: string, itemId: string, status: "pending" | "in_progress" | "completed") {
+  setSessions((prev) => {
+    const sess = prev[id];
+    if (!sess) return prev;
+    const nextPlan = (sess.plan ?? []).map((it) => (it.id === itemId ? { ...it, status } : it));
+    return { ...prev, [id]: { ...sess, plan: nextPlan } } as typeof prev;
+  });
+}
 export function setCommandsFor(id: string, cmds: Command[]) {
   setSessions((prev) => ({
     ...prev,

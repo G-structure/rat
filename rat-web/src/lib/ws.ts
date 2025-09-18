@@ -22,6 +22,13 @@ export function sendPermissionSelected(rid: string | number, optionId: string) {
   if (!wsGlobal || wsGlobal.readyState !== WebSocket.OPEN) return;
   const resp = { jsonrpc: "2.0", id: rid, result: { outcome: { selected: { optionId } } } };
   wsGlobal.send(JSON.stringify(resp));
+  // best-effort log for visibility
+  try {
+    const time = new Date().toISOString();
+    const line = `→ ${time} permission response id=${rid} optionId=${optionId}`;
+    // eslint-disable-next-line no-console
+    console.log(line);
+  } catch {}
 }
 
 export function sendPermissionCancelled(rid: string | number) {

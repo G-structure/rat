@@ -7,6 +7,7 @@ import { TerminalView } from "./components/TerminalView";
 import { CommandsPanel } from "./components/CommandsPanel";
 import { ModeSelector } from "./components/ModeSelector";
 import { PermissionDialog } from "./components/PermissionDialog";
+import { DiffView } from "./components/DiffView";
 
 export default function App() {
   const { state, log, sessionId, connect, disconnect, startSession, sendPrompt, closeSession } = useAcpWs();
@@ -14,7 +15,7 @@ export default function App() {
   const sessions = () => Object.keys(store.sessions());
   const active = () => store.activeSessionId();
   const [showRaw, setShowRaw] = createSignal(false);
-  const [view, setView] = createSignal<"chat" | "plan" | "terminal" | "commands" | "raw">("chat");
+  const [view, setView] = createSignal<"chat" | "plan" | "diffs" | "terminal" | "commands" | "raw">("chat");
 
   return (
     <div class="shell">
@@ -47,6 +48,7 @@ export default function App() {
       <div class="topnav">
         <button class={view()==='chat'? 'on' : ''} onClick={() => setView('chat')}>Chat</button>
         <button class={view()==='plan'? 'on' : ''} onClick={() => setView('plan')}>Plan</button>
+        <button class={view()==='diffs'? 'on' : ''} onClick={() => setView('diffs')}>Diffs</button>
         <button class={view()==='terminal'? 'on' : ''} onClick={() => setView('terminal')}>Terminal</button>
         <button class={view()==='commands'? 'on' : ''} onClick={() => setView('commands')}>Commands</button>
         <button class={view()==='raw'? 'on' : ''} onClick={() => setView('raw')}>Raw</button>
@@ -63,6 +65,9 @@ export default function App() {
             </Show>
             <Show when={view()==='plan'}>
               <PlanPanel />
+            </Show>
+            <Show when={view()==='diffs'}>
+              <DiffView />
             </Show>
             <Show when={view()==='terminal'}>
               <TerminalView />
