@@ -671,3 +671,4 @@ Next:
 - **Next**: Continue with other UI elements (tool calls, permission dialogs, diff review)
 
 ---
+- 2025‑09‑17 — Added spec_local_web.md describing current behavior of rat‑web and src/local_ws.rs (handshake, env flags, intercepts for fs/* and terminal/execute, UI views and state, permission flow, limitations).
