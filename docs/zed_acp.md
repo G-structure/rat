@@ -2,6 +2,17 @@
 
 ## Overview
 
+Quick links to deeper guides (relative paths):
+- [Permissions and Authorization](./zed_acp_premissions.md)
+- [Tools Catalog](./zed_acp_tools.md)
+- [MCP Integration](./zed_acp_mcp_integration.md)
+- [Agent Launching](./zed_acp_agent_launching.md)
+- [Session Management](./zed_acp_session_management.md)
+- [Debugging Guide](./zed_acp_debugging.md)
+- [Extensibility](./zed_acp_extensibility.md)
+- [Authentication / Login](./zed_acp_login.md)
+- [User Interface](./zed_acp_ui.md)
+
 Zed implements the Agent Client Protocol (ACP) to enable integration with external AI coding agents. ACP is a standardized protocol that allows code editors to communicate with AI agents over JSON-RPC, providing a decoupled architecture where agents run as subprocesses and interact with the editor through a well-defined API.
 
 The protocol addresses the interoperability challenges in the AI coding ecosystem by providing a common interface that any compatible agent can use to work with any compatible editor. In Zed's implementation, this allows users to leverage powerful AI agents like Claude Code and Gemini CLI directly within the editor environment.
@@ -19,10 +30,10 @@ The protocol uses JSON-RPC 2.0 over stdio for transport, with the schema defined
 
 ### Key Protocol Concepts
 
-- **Sessions**: Independent conversation contexts with unique IDs (`SessionId`)
-- **Tool Calls**: Structured requests for operations like file editing or terminal commands
-- **Permissions**: User authorization system for sensitive operations
-- **MCP Integration**: Proxy support for Model Context Protocol servers
+- [**Sessions**](./zed_acp_session_management.md): Independent conversation contexts with unique IDs (`SessionId`)
+- [**Tool Calls**](./zed_acp_tools.md): Structured requests for operations like file editing or terminal commands
+- [**Permissions**](./zed_acp_premissions.md): User authorization system for sensitive operations
+- [**MCP Integration**](./zed_acp_mcp_integration.md): Proxy support for Model Context Protocol servers
 - **Streaming**: Real-time updates via notifications during agent processing
 
 ### Zed's ACP Entry Points
@@ -30,8 +41,8 @@ The protocol uses JSON-RPC 2.0 over stdio for transport, with the schema defined
 Zed's ACP integration begins with several key initialization points:
 
 1. **Main Application**: `acp_tools::init(cx)` in `main.rs` registers ACP tools and UI components
-2. **Agent Servers**: `agent_servers::init(cx)` sets up agent launching infrastructure
-3. **Agent UI**: `agent_ui::init(cx)` creates the conversation interface
+2. **Agent Servers**: `agent_servers::init(cx)` sets up agent launching infrastructure (details: [Agent Launching](./zed_acp_agent_launching.md))
+3. **Agent UI**: `agent_ui::init(cx)` creates the conversation interface (details: [ACP UI](./zed_acp_ui.md))
 4. **Agent Settings**: `agent_settings::init(cx)` manages agent configurations
 
 These initialization functions set up the complete ACP ecosystem within Zed's architecture.
@@ -242,6 +253,8 @@ let result = conn
 
 Claude Code authentication involves API key validation through the adapter, while other agents may use different methods.
 
+For a full walkthrough of the authentication flow and UX, see [Authentication Flow](./zed_acp_login.md).
+
 #### 5. Session Creation
 Zed creates a new conversation session:
 
@@ -381,7 +394,7 @@ let mcp_servers = context_server_store
     .collect();
 ```
 
-This allows agents to access additional tools and context through the MCP ecosystem.
+This allows agents to access additional tools and context through the MCP ecosystem. More: [MCP Integration](./zed_acp_mcp_integration.md)
 
 #### Real-time Streaming
 The protocol supports rich streaming through notifications:
@@ -437,7 +450,7 @@ Zed provides complete implementation of the ACP protocol specification:
 
 ### ACP Agent Tools (Zed implementation)
 
-Only the tools defined under `zed/crates/agent2/src/tools` are used by Zed’s ACP agent implementation. These are exposed to ACP agents via `agent2`’s `AgentTool` interface and are surfaced over ACP as `ToolKind` variants. This is distinct from Zed’s non‑ACP “assistant tools” (`crates/assistant_tools`), which are not invoked by ACP agents.
+Only the tools defined under `zed/crates/agent2/src/tools` are used by Zed’s ACP agent implementation. These are exposed to ACP agents via `agent2`’s `AgentTool` interface and are surfaced over ACP as `ToolKind` variants. This is distinct from Zed’s non‑ACP “assistant tools” (`crates/assistant_tools`), which are not invoked by ACP agents. For a complete catalog with parameters and examples, see [ACP Tools](./zed_acp_tools.md).
 
 Below is the ACP tool set with direct code references and their ACP kinds.
 
@@ -748,7 +761,7 @@ fn handle_session_update(&mut self, update: acp::SessionNotification, cx: &mut C
 
 ### Tool Call Authorization System
 
-Zed implements a comprehensive authorization framework for tool execution:
+Zed implements a comprehensive authorization framework for tool execution (details and UI flows: [Permissions Guide](./zed_acp_premissions.md)):
 
 #### Authorization Request Flow
 ```rust
@@ -785,7 +798,7 @@ pub fn request_tool_call_authorization(
 
 ### Error Handling and Recovery Mechanisms
 
-Zed provides multi-layered error handling throughout the ACP stack:
+Zed provides multi-layered error handling throughout the ACP stack (tracing and debugging guide: [Debugging Guide](./zed_acp_debugging.md)):
 
 #### Transport Layer Errors
 - **Connection Failures**: Automatic retry with exponential backoff
@@ -866,6 +879,8 @@ pub enum ErrorCode {
 - **Compliance Tracking**: Regulatory requirement fulfillment
 
 ### Extensibility Framework
+
+For extension patterns, hooks, and examples, see [Extensibility](./zed_acp_extensibility.md).
 
 #### Custom Tool Development
 - **Tool Registration**: Plugin system for custom tools
