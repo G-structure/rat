@@ -1,6 +1,6 @@
 import { For, Show, createSignal } from "solid-js";
 import { useAcpWs } from "./lib/ws";
-import { store, selectActiveSession } from "./state";
+import { store, selectActiveSession, setDiffsFor, DiffItem } from "./state";
 import { ChatView } from "./components/ChatView";
 import { PlanPanel } from "./components/PlanPanel";
 import { TerminalView } from "./components/TerminalView";
@@ -8,8 +8,69 @@ import { CommandsPanel } from "./components/CommandsPanel";
 import { ModeSelector } from "./components/ModeSelector";
 import { PermissionDialog } from "./components/PermissionDialog";
 import { DiffView } from "./components/DiffView";
+import { EditableDiffView } from "./components/EditableDiffView";
+import { LiquidChatButton } from "./components/LiquidChatButton";
 
 export default function App() {
+  // Test function to add dummy diff data
+  const addTestDiffs = () => {
+    const testDiffs: DiffItem[] = [
+      {
+        path: "src/components/Button.tsx",
+        diff: `--- src/components/Button.tsx
++++ src/components/Button.tsx
+@@ -1,10 +1,15 @@
+ import React from 'react';
+ 
+ export function Button(props) {
+-  const handleClick = () => {
+-    console.log('clicked');
+-  };
++  const handleClick = () => {
++    console.log('Button was clicked!');
++    props.onClick?.();
++  };
++  
++  const className = \`btn \${props.variant || 'primary'}\`;
+ 
+   return (
+-    <button onClick={handleClick}>{props.children}</button>
++    <button className={className} onClick={handleClick}>
++      {props.children}
++    </button>
+   );
+ }`
+      },
+      {
+        path: "src/utils/api.ts",
+        diff: `--- src/utils/api.ts
++++ src/utils/api.ts
+@@ -5,8 +5,12 @@
+ 
+ export async function fetchData(endpoint: string) {
+   try {
+-    const response = await fetch(endpoint);
+-    return response.json();
++    const response = await fetch(endpoint, {
++      headers: {
++        'Content-Type': 'application/json',
++        'Authorization': \`Bearer \${getToken()}\`
++      }
++    });
++    return await response.json();
+   } catch (error) {
+     console.error('API Error:', error);
+     throw error;
+   }
+ }`
+      }
+    ];
+    
+    const activeId = active();
+    if (activeId) {
+      setDiffsFor(activeId, testDiffs);
+    }
+  };
   const { state, log, sessionId, connect, disconnect, startSession, sendPrompt, closeSession } = useAcpWs();
   const [prompt, setPrompt] = createSignal("");
   const sessions = () => Object.keys(store.sessions());
@@ -28,6 +89,7 @@ export default function App() {
       </header>
       <div class="tabsbar">
         <button onClick={() => startSession()} style="background:#173021; border-color:#1f3a2b;">New Session</button>
+        <button onClick={() => addTestDiffs()} style="background:#1f2847; border-color:#2a3a5f; margin-left: 8px;">Add Test Diffs</button>
         <For each={sessions()}>
           {(sid) => (
             <span style="display:inline-flex; align-items:center; gap:4px;">
@@ -67,7 +129,7 @@ export default function App() {
               <PlanPanel />
             </Show>
             <Show when={view()==='diffs'}>
-              <DiffView />
+              <EditableDiffView />
             </Show>
             <Show when={view()==='terminal'}>
               <TerminalView />
@@ -108,6 +170,7 @@ export default function App() {
         </aside>
       </div>
       <PermissionDialog />
+      <LiquidChatButton />
     </div>
   );
 }

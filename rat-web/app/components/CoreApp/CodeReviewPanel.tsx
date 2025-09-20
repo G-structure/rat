@@ -214,7 +214,7 @@ export function CodeReviewPanel(props: CodeReviewPanelProps) {
                     
                     <Show when={expandedFiles().has(file.path)}>
                       <div class="p-4 bg-[#0d0d0d] border-t border-border">
-                        <pre class="text-xs font-mono overflow-x-auto">
+                        <pre class="text-xs font-mono overflow-x-auto whitespace-pre">
                           <code innerHTML={getDiff(file).split('\n').map(line => {
                             if (line.startsWith('+')) {
                               return `<span class="text-green-400 bg-green-500/10">${line}</span>`;

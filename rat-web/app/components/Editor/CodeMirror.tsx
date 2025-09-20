@@ -102,7 +102,7 @@ export function CodeMirror(props: CodeMirrorProps) {
         }
       }
     }),
-    EditorView.lineWrapping,
+    // EditorView.lineWrapping, // Disabled to allow infinite horizontal scrolling
     keymap.of([indentWithTab])
   ];
   

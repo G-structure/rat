@@ -12,7 +12,7 @@ export function DiffView() {
         {(d) => (
           <div style="margin-bottom:12px;">
             <div style="color:#b6c2d6; font-weight:600;">{d.path}</div>
-            <pre style="white-space:pre-wrap; margin:6px 0;">{d.diff}</pre>
+            <pre style="white-space:pre; overflow-x:auto; margin:6px 0;" class="scrollbar-thin">{d.diff}</pre>
           </div>
         )}
       </For>

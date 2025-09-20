@@ -1,35 +1,30 @@
-import { createSignal, Show, onMount, onCleanup, createMemo } from "solid-js";
+import { createSignal, Show, onMount, onCleanup } from "solid-js";
 import { Title } from "@solidjs/meta";
 import { useSearchParams } from "@solidjs/router";
 import { Sidebar } from "~/components/CoreApp/Sidebar";
 import { CodeEditor } from "~/components/CoreApp/CodeEditor";
-import { ChatBubble } from "~/components/CoreApp/ChatBubble";
-import { ChatModal } from "~/components/CoreApp/ChatModal";
+import { LiquidChatButton } from "~/components/CoreApp/LiquidChatButton";
 import { KeyboardPrompt } from "~/components/CoreApp/KeyboardPrompt";
 import { CodeReviewPanel } from "~/components/CoreApp/CodeReviewPanel";
-import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { showToast } from "~/components/Common/Toast";
 
 export default function CoreApp() {
   const [searchParams] = useSearchParams();
   const repoName = searchParams.repo || "default-project";
-  const [loadingState, setLoadingState] = createSignal("idle");
+  const [setLoadingState] = createSignal("idle");
   
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
-  const [chatModalOpen, setChatModalOpen] = createSignal(false);
   const [keyboardPromptOpen, setKeyboardPromptOpen] = createSignal(false);
   const [reviewPanelOpen, setReviewPanelOpen] = createSignal(false);
   const [selectedFile, setSelectedFile] = createSignal<string | null>("src/App.tsx");
-  const [chatContent, setChatContent] = useLocalStorage("chat-content", "");
   const [selectedText, setSelectedText] = createSignal("");
-  const [isGenerating, setIsGenerating] = createSignal(false);
   
   // Mock file changes for review
   const [filesAffected] = createSignal([
-    { path: "src/App.tsx", additions: 15, deletions: 3, status: "modified" },
-    { path: "src/components/Button.tsx", additions: 42, deletions: 0, status: "added" },
-    { path: "src/utils/helpers.ts", additions: 5, deletions: 8, status: "modified" },
-    { path: "src/old-file.ts", additions: 0, deletions: 25, status: "deleted" }
+    { path: "src/App.tsx", additions: 15, deletions: 3, status: "modified" as const },
+    { path: "src/components/Button.tsx", additions: 42, deletions: 0, status: "added" as const },
+    { path: "src/utils/helpers.ts", additions: 5, deletions: 8, status: "modified" as const },
+    { path: "src/old-file.ts", additions: 0, deletions: 25, status: "deleted" as const }
   ]);
 
   // Handle keyboard shortcuts
@@ -41,11 +36,6 @@ export default function CoreApp() {
         setKeyboardPromptOpen(true);
       }
       
-      // Cmd/Ctrl + / for chat toggle
-      if ((e.metaKey || e.ctrlKey) && e.key === "/") {
-        e.preventDefault();
-        setChatModalOpen(!chatModalOpen());
-      }
       
       // Cmd/Ctrl + Shift + R for review panel
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "R") {
@@ -56,7 +46,6 @@ export default function CoreApp() {
       // Escape to close modals
       if (e.key === "Escape") {
         if (keyboardPromptOpen()) setKeyboardPromptOpen(false);
-        else if (chatModalOpen()) setChatModalOpen(false);
         else if (reviewPanelOpen()) setReviewPanelOpen(false);
       }
     };
@@ -131,22 +120,8 @@ export default function CoreApp() {
           </div>
         </div>
         
-        {/* Chat Bubble - Always visible */}
-        <Show when={!chatModalOpen()}>
-          <ChatBubble 
-            onClick={() => setChatModalOpen(true)}
-            hasContent={chatContent().length > 0}
-          />
-        </Show>
-        
-        {/* Chat Modal */}
-        <Show when={chatModalOpen()}>
-          <ChatModal
-            content={chatContent()}
-            onContentChange={setChatContent}
-            onClose={() => setChatModalOpen(false)}
-          />
-        </Show>
+        {/* Liquid Chat Button */}
+        <LiquidChatButton />
         
         {/* Keyboard Prompt Modal */}
         <Show when={keyboardPromptOpen()}>
