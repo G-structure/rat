@@ -1,0 +1,86 @@
+{
+  "name": "RAT Mobile IDE",
+  "short_name": "RAT IDE",
+  "description": "AI-powered mobile code editor with GitHub integration",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0b0b",
+  "theme_color": "#0b0b0b",
+  "dir": "ltr",
+  "lang": "en-US",
+  "categories": ["developer", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/pwa-512.png",
+      "sizes": "512x512", 
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/maskable-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/mobile-1.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Home screen"
+    },
+    {
+      "src": "/screenshots/mobile-2.png", 
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Code editor"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New File",
+      "short_name": "New",
+      "description": "Create a new file",
+      "url": "/dashboard?action=new",
+      "icons": [{ "src": "/icons/new-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Recent Files",
+      "short_name": "Recent",
+      "description": "View recent files",
+      "url": "/dashboard?view=recent",
+      "icons": [{ "src": "/icons/recent-96.png", "sizes": "96x96" }]
+    }
+  ],
+  "prefer_related_applications": false,
+  "related_applications": [],
+  "protocol_handlers": [
+    {
+      "protocol": "web+rat",
+      "url": "/open?url=%s"
+    }
+  ]
+}
