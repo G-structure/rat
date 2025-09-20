@@ -11,26 +11,18 @@ export default function Login() {
   const [pollProgress, setPollProgress] = createSignal(0);
 
   async function startDeviceFlow() {
-    setError(null);
-    try {
-      const response = await fetch("/api/auth/device.start", {
-        method: "POST"
-      });
-      
-      if (!response.ok) {
-        throw new Error("Failed to start device flow");
-      }
-      
-      const data = await response.json();
-      setDeviceCode(data.device_code);
-      setUserCode(data.user_code);
-      setVerificationUri(data.verification_uri);
-      
-      // Start polling for authorization
-      pollForAuthorization(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-    }
+    // Just immediately log in with mock data
+    localStorage.setItem("mock-user", JSON.stringify({
+      user: {
+        login: "demo-user",
+        name: "Demo User",
+        avatar_url: "https://avatars.githubusercontent.com/u/1?v=4"
+      },
+      credits: 1000
+    }));
+    
+    // Redirect to dashboard immediately
+    window.location.href = "/dashboard";
   }
 
   async function pollForAuthorization(data: any) {
@@ -48,24 +40,43 @@ export default function Login() {
       setPollProgress(Math.min((elapsed / expiresIn) * 100, 100));
       
       try {
-        const response = await fetch("/api/auth/device.poll", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ device_code: data.device_code })
-        });
+        const isDev = import.meta.env.DEV;
+        let response;
         
-        if (response.status === 200) {
-          // Success! Redirect to dashboard
-          window.location.href = "/dashboard";
-          return;
-        } else if (response.status === 428) {
-          // Still pending, continue polling
+        if (isDev && !import.meta.env.VITE_GITHUB_CLIENT_ID) {
+          // Use mock API in development
+          const { mockApi } = await import("~/lib/api/mock-api");
+          const result = await mockApi.pollDeviceFlow(data.device_code);
+          if (result.ok) {
+            // Store mock user data
+            localStorage.setItem("mock-user", JSON.stringify({
+              user: result.user,
+              credits: 1000
+            }));
+            window.location.href = "/dashboard";
+            return;
+          }
           continue;
-        } else if (response.status >= 400) {
-          // Error occurred
-          const error = await response.text();
-          setError(error || "Authorization failed");
-          break;
+        } else {
+          response = await fetch("/api/auth/device.poll", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ device_code: data.device_code })
+          });
+          
+          if (response.status === 200) {
+            // Success! Redirect to dashboard
+            window.location.href = "/dashboard";
+            return;
+          } else if (response.status === 428) {
+            // Still pending, continue polling
+            continue;
+          } else if (response.status >= 400) {
+            // Error occurred
+            const error = await response.text();
+            setError(error || "Authorization failed");
+            break;
+          }
         }
       } catch (err) {
         setError("Network error occurred");

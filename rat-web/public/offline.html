@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>RAT Mobile IDE - Offline</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b0b0b;
+      color: #e5e5e5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      text-align: center;
+    }
+    
+    .container {
+      max-width: 400px;
+      width: 100%;
+    }
+    
+    .icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 2rem;
+      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      font-weight: bold;
+      color: white;
+    }
+    
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    
+    p {
+      color: #a3a3a3;
+      line-height: 1.6;
+      margin-bottom: 2rem;
+    }
+    
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 9999px;
+      font-size: 0.875rem;
+      color: #fbbf24;
+    }
+    
+    .status::before {
+      content: "⚡";
+      font-size: 1.25rem;
+    }
+    
+    .actions {
+      margin-top: 3rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    
+    .btn {
+      padding: 0.75rem 1.5rem;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      color: white;
+      text-decoration: none;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    
+    .btn-primary {
+      background: #3b82f6;
+      border-color: #3b82f6;
+    }
+    
+    .btn-primary:hover {
+      background: #2563eb;
+      border-color: #2563eb;
+    }
+    
+    @media (prefers-color-scheme: light) {
+      body {
+        background: white;
+        color: #171717;
+      }
+      
+      p {
+        color: #737373;
+      }
+      
+      .status {
+        background: rgba(0, 0, 0, 0.05);
+        color: #f59e0b;
+      }
+      
+      .btn {
+        background: rgba(0, 0, 0, 0.05);
+        border-color: rgba(0, 0, 0, 0.1);
+        color: #171717;
+      }
+      
+      .btn:hover {
+        background: rgba(0, 0, 0, 0.1);
+        border-color: rgba(0, 0, 0, 0.15);
+      }
+      
+      .btn-primary {
+        background: #3b82f6;
+        border-color: #3b82f6;
+        color: white;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">&lt;/&gt;</div>
+    
+    <h1>You're Offline</h1>
+    
+    <p>
+      RAT Mobile IDE works best with an internet connection. 
+      Some features may be limited while offline.
+    </p>
+    
+    <div class="status">
+      Offline Mode Active
+    </div>
+    
+    <div class="actions">
+      <button onclick="window.location.reload()" class="btn btn-primary">
+        Try Again
+      </button>
+      <a href="/" class="btn">
+        Go to Home
+      </a>
+    </div>
+  </div>
+  
+  <script>
+    // Check for connection periodically
+    setInterval(() => {
+      if (navigator.onLine) {
+        window.location.reload();
+      }
+    }, 5000);
+    
+    // Listen for online event
+    window.addEventListener('online', () => {
+      window.location.reload();
+    });
+  </script>
+</body>
+</html>

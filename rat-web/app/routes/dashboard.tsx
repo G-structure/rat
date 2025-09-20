@@ -10,23 +10,73 @@ export default function Dashboard() {
   const userQuery = createQuery(() => ({
     queryKey: ["me"],
     queryFn: async () => {
-      const response = await fetch("/api/me");
-      if (!response.ok) {
-        if (response.status === 401) {
+      const isDev = import.meta.env.DEV;
+      
+      if (isDev && !import.meta.env.VITE_GITHUB_CLIENT_ID) {
+        // Use mock API in development
+        const { mockApi } = await import("~/lib/api/mock-api");
+        const data = await mockApi.getMe();
+        if (!data.user) {
           window.location.href = "/login";
           throw new Error("Unauthorized");
         }
-        throw new Error("Failed to fetch user data");
+        return data;
+      } else {
+        const response = await fetch("/api/me");
+        if (!response.ok) {
+          if (response.status === 401) {
+            window.location.href = "/login";
+            throw new Error("Unauthorized");
+          }
+          throw new Error("Failed to fetch user data");
+        }
+        return response.json();
       }
-      return response.json();
     }
   }));
   
-  // Mock repos for now
+  // Enhanced mock repos with more details
   const repos = [
-    { name: "my-app", language: "TypeScript", updated: "2h ago" },
-    { name: "api-server", language: "Python", updated: "1d ago" },
-    { name: "mobile-ui", language: "Swift", updated: "3d ago" }
+    { 
+      name: "react-todo-app", 
+      language: "TypeScript", 
+      updated: "2h ago",
+      description: "A modern todo app with React and TypeScript",
+      stars: 234,
+      issues: 5
+    },
+    { 
+      name: "python-api-server", 
+      language: "Python", 
+      updated: "1d ago",
+      description: "RESTful API server with FastAPI and PostgreSQL",
+      stars: 89,
+      issues: 12
+    },
+    { 
+      name: "mobile-shopping-app", 
+      language: "Swift", 
+      updated: "3d ago",
+      description: "iOS shopping app with SwiftUI",
+      stars: 456,
+      issues: 3
+    },
+    {
+      name: "ml-recommendation-engine",
+      language: "Python",
+      updated: "5d ago", 
+      description: "Machine learning recommendation system",
+      stars: 1023,
+      issues: 8
+    },
+    {
+      name: "vue-dashboard",
+      language: "JavaScript",
+      updated: "1w ago",
+      description: "Analytics dashboard built with Vue 3",
+      stars: 567,
+      issues: 15
+    }
   ];
   
   onMount(() => {
@@ -94,17 +144,42 @@ export default function Dashboard() {
                 <div class="space-y-2">
                   {repos.map(repo => (
                     <button
-                      onClick={() => setSelectedRepo(repo.name)}
+                      onClick={() => {
+                        setSelectedRepo(repo.name);
+                        // Simulate loading and redirect to editor
+                        setTimeout(() => {
+                          window.location.href = `/app?repo=${repo.name}`;
+                        }, 500);
+                      }}
                       class="w-full p-4 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors text-left"
                     >
                       <div class="flex items-center justify-between">
-                        <div>
+                        <div class="flex-1">
                           <h3 class="font-medium">{repo.name}</h3>
-                          <p class="text-sm text-muted-foreground">
-                            {repo.language} · Updated {repo.updated}
+                          <p class="text-xs text-muted-foreground mt-1">
+                            {repo.description}
                           </p>
+                          <div class="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                            <span class="flex items-center gap-1">
+                              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+                              </svg>
+                              {repo.stars}
+                            </span>
+                            <span class="flex items-center gap-1">
+                              <div class={`w-3 h-3 rounded-full ${
+                                repo.language === "TypeScript" ? "bg-blue-500" :
+                                repo.language === "Python" ? "bg-yellow-500" :
+                                repo.language === "Swift" ? "bg-orange-500" :
+                                repo.language === "JavaScript" ? "bg-yellow-400" :
+                                "bg-gray-500"
+                              }`} />
+                              {repo.language}
+                            </span>
+                            <span>Updated {repo.updated}</span>
+                          </div>
                         </div>
-                        <svg class="w-5 h-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-5 h-5 text-muted-foreground flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                         </svg>
                       </div>
@@ -126,10 +201,10 @@ export default function Dashboard() {
               <div class="p-4 space-y-4 border-t border-border">
                 <h2 class="text-lg font-semibold">Quick Actions</h2>
                 <div class="grid grid-cols-2 gap-3">
-                  <button class="p-4 rounded-xl bg-primary text-primary-foreground">
-                    <div class="text-2xl mb-2">✨</div>
-                    <div class="text-sm font-medium">New File</div>
-                  </button>
+                  <a href="/app" class="p-4 rounded-xl bg-primary text-primary-foreground text-center">
+                    <div class="text-2xl mb-2">💻</div>
+                    <div class="text-sm font-medium">Open Editor</div>
+                  </a>
                   <button class="p-4 rounded-xl bg-secondary">
                     <div class="text-2xl mb-2">🔍</div>
                     <div class="text-sm font-medium">Search Code</div>

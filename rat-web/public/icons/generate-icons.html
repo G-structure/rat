@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate PWA Icons</title>
+    <style>
+        canvas { display: none; }
+        .preview { margin: 10px; display: inline-block; }
+        .preview img { border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <h1>PWA Icon Generator</h1>
+    <p>This page generates placeholder icons. Right-click and save each icon:</p>
+    <div id="previews"></div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const sizes = [
+            { size: 192, name: 'pwa-192.png' },
+            { size: 512, name: 'pwa-512.png' },
+            { size: 192, name: 'maskable-192.png', maskable: true },
+            { size: 512, name: 'maskable-512.png', maskable: true },
+            { size: 1024, name: 'maskable-1024.png', maskable: true }
+        ];
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const previews = document.getElementById('previews');
+
+        sizes.forEach(({ size, name, maskable }) => {
+            canvas.width = size;
+            canvas.height = size;
+
+            // Background
+            const gradient = ctx.createLinearGradient(0, 0, size, size);
+            gradient.addColorStop(0, '#3b82f6');
+            gradient.addColorStop(1, '#8b5cf6');
+            ctx.fillStyle = gradient;
+            
+            if (maskable) {
+                // Add padding for maskable icons
+                const padding = size * 0.1;
+                ctx.fillRect(0, 0, size, size);
+                ctx.fillStyle = '#0b0b0b';
+                ctx.fillRect(padding, padding, size - 2 * padding, size - 2 * padding);
+                
+                // Smaller gradient square for maskable
+                const innerSize = size - 2 * padding;
+                const innerGradient = ctx.createLinearGradient(padding, padding, innerSize + padding, innerSize + padding);
+                innerGradient.addColorStop(0, '#3b82f6');
+                innerGradient.addColorStop(1, '#8b5cf6');
+                ctx.fillStyle = innerGradient;
+                const cornerRadius = size * 0.1;
+                ctx.beginPath();
+                ctx.roundRect(padding * 2, padding * 2, innerSize - padding * 2, innerSize - padding * 2, cornerRadius);
+                ctx.fill();
+            } else {
+                const cornerRadius = size * 0.15;
+                ctx.beginPath();
+                ctx.roundRect(0, 0, size, size, cornerRadius);
+                ctx.fill();
+            }
+
+            // Text
+            ctx.fillStyle = 'white';
+            ctx.font = `bold ${size * 0.3}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('</>', size / 2, size / 2);
+
+            // Convert to image
+            const dataUrl = canvas.toDataURL('image/png');
+            const preview = document.createElement('div');
+            preview.className = 'preview';
+            preview.innerHTML = `
+                <h3>${name}</h3>
+                <a href="${dataUrl}" download="${name}">
+                    <img src="${dataUrl}" width="${Math.min(size, 200)}" alt="${name}">
+                </a>
+                <br>
+                <small>Click to download</small>
+            `;
+            previews.appendChild(preview);
+        });
+    </script>
+</body>
+</html>
