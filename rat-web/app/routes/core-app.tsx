@@ -1,4 +1,4 @@
-import { createSignal, Show, onMount, onCleanup } from "solid-js";
+import { createSignal, Show, onMount, onCleanup, createEffect } from "solid-js";
 import { Title } from "@solidjs/meta";
 import { useSearchParams, useNavigate } from "@solidjs/router";
 import { Sidebar } from "~/components/CoreApp/Sidebar";
@@ -8,6 +8,7 @@ import { KeyboardPrompt } from "~/components/CoreApp/KeyboardPrompt";
 import { CodeReviewPanel } from "~/components/CoreApp/CodeReviewPanel";
 import { showToast } from "~/components/Common/Toast";
 import { chatStore } from "~/stores/chatStore";
+import { editorStore } from "~/stores/editorStore";
 
 export default function CoreApp() {
   const [searchParams] = useSearchParams();
@@ -47,6 +48,23 @@ export default function CoreApp() {
         setKeyboardPromptOpen(true);
       }
       
+      // Cmd/Ctrl + Z for undo
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "z") {
+        e.preventDefault();
+        if (editorStore.canUndo()) {
+          editorStore.undo();
+          showToast("Undo", "success");
+        }
+      }
+      
+      // Cmd/Ctrl + Shift + Z for redo
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "z") {
+        e.preventDefault();
+        if (editorStore.canRedo()) {
+          editorStore.redo();
+          showToast("Redo", "success");
+        }
+      }
       
       // Cmd/Ctrl + Shift + R for review panel
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "R") {
@@ -94,7 +112,8 @@ export default function CoreApp() {
         {/* Main Editor Area */}
         <div class="flex-1 flex flex-col">
           {/* Editor Header */}
-          <div class="h-12 border-b border-border flex items-center justify-between px-4">
+          <div class="h-12 border-b border-border grid grid-cols-3 items-center px-4">
+            {/* Left section */}
             <div class="flex items-center gap-2">
               <Show when={!sidebarOpen()}>
                 <button
@@ -119,23 +138,38 @@ export default function CoreApp() {
               <span class="text-sm text-muted-foreground ml-2">{selectedFile()}</span>
             </div>
             
-            {/* Center UNDO Button */}
-            <div class="absolute left-1/2 -translate-x-1/2">
+            {/* Center section - Undo/Redo */}
+            <div class="flex items-center justify-center gap-1">
               <button
                 onClick={() => {
-                  // TODO: Implement undo functionality
-                  showToast("Undo functionality coming soon!", "info");
+                  editorStore.undo();
+                  showToast("Undo", "success");
                 }}
-                class="p-2 hover:bg-secondary rounded-lg"
+                class="p-2 hover:bg-secondary rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Undo (Ctrl+Z)"
+                disabled={!editorStore.canUndo()}
               >
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                 </svg>
               </button>
+              <button
+                onClick={() => {
+                  editorStore.redo();
+                  showToast("Redo", "success");
+                }}
+                class="p-2 hover:bg-secondary rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Redo (Ctrl+Shift+Z)"
+                disabled={!editorStore.canRedo()}
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 10H11a8 8 0 00-8 8v2m18-10l-6 6m6-6l-6-6" />
+                </svg>
+              </button>
             </div>
             
-            <div class="flex items-center gap-2">
+            {/* Right section */}
+            <div class="flex items-center justify-end gap-2">
               <button
                 onClick={() => setReviewPanelOpen(true)}
                 class="px-3 py-1.5 text-sm bg-secondary hover:bg-secondary/80 rounded-lg"

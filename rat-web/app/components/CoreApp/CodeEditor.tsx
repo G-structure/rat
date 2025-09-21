@@ -1,4 +1,5 @@
 import { createSignal, onMount, createEffect, Show } from "solid-js";
+import { editorStore } from "~/stores/editorStore";
 
 interface CodeEditorProps {
   file: string | null;
@@ -367,18 +368,21 @@ export function CodeEditor(props: CodeEditorProps) {
     setError(null);
     
     try {
-      // For now, use mock data if no repo is specified
-      if (!props.repoName || props.repoName === "default-project") {
-        setContent(getFileContent(filePath));
-        return;
+      // First check if file exists in editor store
+      const storedContent = editorStore.getFileContent(filePath);
+      if (storedContent) {
+        setContent(storedContent);
+        editorStore.setActiveFile(filePath);
+      } else {
+        // Fallback to mock data for existing files
+        const mockContent = getFileContent(filePath);
+        setContent(mockContent);
+        // Store the content in editor store for future edits
+        if (mockContent) {
+          editorStore.setFileContent(filePath, mockContent, false);
+          editorStore.setActiveFile(filePath);
+        }
       }
-      
-      // TODO: Implement actual file fetching from local filesystem or GitHub
-      // For local files, we'd need a backend endpoint
-      // For GitHub files, we'd use the existing API
-      
-      // Fallback to mock data for now
-      setContent(getFileContent(filePath));
     } catch (err) {
       setError("Failed to load file content");
       setContent(`// Error loading file: ${filePath}`);
@@ -446,7 +450,14 @@ export function CodeEditor(props: CodeEditorProps) {
             contentEditable
             spellcheck={false}
             innerHTML={highlightCode(content())}
-            onInput={(e) => setContent(e.currentTarget.textContent || "")}
+            onInput={(e) => {
+              const newContent = e.currentTarget.textContent || "";
+              setContent(newContent);
+              // Save to editor store
+              if (props.file) {
+                editorStore.setFileContent(props.file, newContent);
+              }
+            }}
             style={{
               "caret-color": "#fff",
               "white-space": "pre-wrap",

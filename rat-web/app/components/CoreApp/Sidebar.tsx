@@ -1,4 +1,5 @@
 import { createSignal, For, Show, createMemo, onMount, onCleanup } from "solid-js";
+import { editorStore } from "~/stores/editorStore";
 
 interface SidebarProps {
   open: boolean;
@@ -330,13 +331,15 @@ export function Sidebar(props: SidebarProps) {
     
     if (!fileName) return;
     
+    const fullPath = `${filePath}/${fileName}`;
+    
     // Update file tree with new file
     const updateTree = (nodes: FileNode[]): FileNode[] => {
       return nodes.map(node => {
         if (node.path === filePath && node.type === "folder") {
           const newFile: FileNode = {
             name: fileName,
-            path: `${filePath}/${fileName}`,
+            path: fullPath,
             type: "file"
           };
           return {
@@ -352,8 +355,12 @@ export function Sidebar(props: SidebarProps) {
       });
     };
     
+    // Create file in editor store with template content
+    const template = editorStore.getFileTemplate(fileName);
+    editorStore.createFile(fullPath, template);
+    
     setFileTree(updateTree(fileTree()));
-    props.onFileSelect(`${filePath}/${fileName}`);
+    props.onFileSelect(fullPath);
     setShowNewFileDialog(false);
     setNewFileName("");
     setNewFilePath("");
@@ -397,6 +404,9 @@ export function Sidebar(props: SidebarProps) {
     const treeWithoutSource = extractNode([...fileTree()]);
     if (movedNode) {
       setFileTree(insertNode(treeWithoutSource));
+      // Update the path in editor store
+      const newPath = `${targetPath}/${movedNode.name}`;
+      editorStore.moveFile(sourcePath, newPath);
     }
   };
 
