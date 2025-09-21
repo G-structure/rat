@@ -1,0 +1,240 @@
+:root {
+  --onboarding-dark: #030712;
+  --onboarding-card: rgba(15, 23, 42, 0.6);
+  --onboarding-card-border: rgba(148, 163, 184, 0.16);
+  --onboarding-highlight: rgba(56, 189, 248, 0.15);
+  --onboarding-gradient: linear-gradient(135deg, #0ea5e9 0%, #6366f1 45%, #a855f7 100%);
+}
+
+.onboarding-shell {
+  position: relative;
+  min-height: 100vh;
+  background: radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.15), transparent 45%),
+    radial-gradient(circle at 80% 0%, rgba(99, 102, 241, 0.18), transparent 55%),
+    radial-gradient(circle at 30% 80%, rgba(248, 113, 113, 0.12), transparent 60%),
+    var(--onboarding-dark);
+  color: #f8fafc;
+  overflow: hidden;
+}
+
+.onboarding-aurora {
+  position: absolute;
+  inset: -40vh -40vw;
+  background: conic-gradient(from 180deg at 50% 50%, rgba(59, 130, 246, 0.45) 0deg, rgba(14, 165, 233, 0.3) 120deg, rgba(236, 72, 153, 0.35) 240deg, rgba(99, 102, 241, 0.45) 360deg);
+  filter: blur(140px);
+  opacity: 0.6;
+  animation: auroraFloat 18s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+.onboarding-grid {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.65) 0%, transparent 70%);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+@keyframes auroraFloat {
+  0% {
+    transform: translate3d(-10%, -8%, 0) scale(1.05);
+  }
+  100% {
+    transform: translate3d(10%, 12%, 0) scale(1.1);
+  }
+}
+
+.onboarding-card {
+  position: relative;
+  border-radius: 24px;
+  background: var(--onboarding-card);
+  border: 1px solid var(--onboarding-card-border);
+  box-shadow: 0 20px 45px rgba(2, 6, 23, 0.55);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  z-index: 10;
+  isolation: isolate;
+  transition: transform 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+.onboarding-card::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.08), rgba(15, 23, 42, 0.35));
+  z-index: -1;
+}
+
+.onboarding-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(148, 163, 184, 0.25);
+  box-shadow: 0 28px 55px rgba(2, 6, 23, 0.6);
+}
+
+.primary-button,
+.secondary-button,
+.tertiary-button,
+.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.9rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-transform: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.primary-button {
+  background: var(--onboarding-gradient);
+  color: white;
+  box-shadow: 0 14px 40px rgba(56, 189, 248, 0.35);
+}
+
+.primary-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 20px 45px rgba(99, 102, 241, 0.35);
+}
+
+.primary-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.secondary-button {
+  background: rgba(15, 23, 42, 0.6);
+  color: rgba(226, 232, 240, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.secondary-button:hover {
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.tertiary-button {
+  background: rgba(15, 23, 42, 0.2);
+  border: 1px solid rgba(226, 232, 240, 0.18);
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.tertiary-button:hover {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.ghost-button {
+  background: transparent;
+  border: 1px dashed rgba(226, 232, 240, 0.3);
+  color: rgba(226, 232, 240, 0.7);
+}
+
+.ghost-button:hover {
+  border-color: rgba(226, 232, 240, 0.55);
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.step-marker {
+  flex: 1;
+  font-size: 0.68rem;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  padding: 0.65rem 0.35rem;
+  color: rgba(226, 232, 240, 0.4);
+  border: none;
+  background: transparent;
+  position: relative;
+}
+
+.step-marker::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  transition: background 0.3s ease, width 0.3s ease;
+}
+
+.step-marker.active {
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.step-marker.current::after {
+  width: 56px;
+  background: var(--onboarding-gradient);
+}
+
+.device-code-card {
+  display: grid;
+  gap: 0.5rem;
+  border-radius: 18px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  padding: 1rem 1.25rem;
+  color: #ecfdf5;
+  font-family: "Space Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  text-align: center;
+}
+
+.device-code-card code {
+  font-size: 1.6rem;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+}
+
+.device-code-card span {
+  opacity: 0.75;
+}
+
+@media (min-width: 768px) {
+  .onboarding-shell {
+    padding-bottom: 0;
+  }
+
+  .onboarding-card {
+    border-radius: 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-aurora {
+    animation: none;
+  }
+
+  .onboarding-card,
+  .primary-button,
+  .secondary-button,
+  .tertiary-button,
+  .ghost-button {
+    transition: none;
+  }
+}
+
+/* Legacy classes retained for components still referencing them */
+.onboarding-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.45), rgba(129, 140, 248, 0.35));
+  backdrop-filter: blur(12px);
+}
+
+.loading-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

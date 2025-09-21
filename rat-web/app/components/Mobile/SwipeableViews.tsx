@@ -1,4 +1,4 @@
-import { createSignal, onMount, onCleanup, For, children, JSX } from "solid-js";
+import { createSignal, onMount, onCleanup, For, children, JSX, createEffect } from "solid-js";
 
 interface SwipeableViewsProps {
   children: JSX.Element;
@@ -53,12 +53,11 @@ export function SwipeableViews(props: SwipeableViewsProps) {
   const handleEnd = () => {
     if (!isDragging() || !containerRef) return;
     setIsDragging(false);
-    
+
     const containerWidth = containerRef.offsetWidth;
     const deltaX = translateX() - startTranslateX;
-    const currentTranslate = -currentIndex() * containerWidth;
-    
-    let newIndex = currentIndex();
+    const previousIndex = currentIndex();
+    let newIndex = previousIndex;
     
     if (Math.abs(deltaX) > threshold) {
       if (deltaX < 0 && currentIndex() < childCount - 1) {
@@ -70,8 +69,8 @@ export function SwipeableViews(props: SwipeableViewsProps) {
     
     setCurrentIndex(newIndex);
     setTranslateX(-newIndex * containerWidth);
-    
-    if (props.onIndexChange && newIndex !== currentIndex()) {
+
+    if (props.onIndexChange && newIndex !== previousIndex) {
       props.onIndexChange(newIndex);
     }
   };
@@ -126,14 +125,17 @@ export function SwipeableViews(props: SwipeableViewsProps) {
     document.removeEventListener("mouseup", handleMouseUp);
   });
   
-  // Update position when index prop changes
-  if (props.index !== undefined && props.index !== currentIndex()) {
-    setCurrentIndex(props.index);
+  createEffect(() => {
+    if (props.index === undefined) return;
+    const targetIndex = Math.min(Math.max(props.index, 0), childCount - 1);
+    if (targetIndex === currentIndex()) return;
+
+    setCurrentIndex(targetIndex);
     if (containerRef) {
       const containerWidth = containerRef.offsetWidth;
-      setTranslateX(-props.index * containerWidth);
+      setTranslateX(-targetIndex * containerWidth);
     }
-  }
+  });
   
   return (
     <div class="relative overflow-hidden h-full">
