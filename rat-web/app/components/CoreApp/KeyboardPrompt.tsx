@@ -3,6 +3,7 @@ import { Portal } from "solid-js/web";
 
 interface KeyboardPromptProps {
   selectedText: string;
+  chatHistory?: Array<{prompt: string; response?: string; timestamp: number}>;
   onClose: () => void;
   onSubmit: (prompt: string) => void;
 }

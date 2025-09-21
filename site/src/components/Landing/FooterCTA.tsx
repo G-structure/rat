@@ -71,7 +71,7 @@ export default function FooterCTA() {
             <Link href="#" className="hover:text-white transition-colors">Contact</Link>
           </div>
           <p className="mt-6 text-xs text-gray-500">
-            © 2024 OMNARA. All rights reserved. Built with Claude Code.
+            © 2024 RAT MOBILE. All rights reserved. Built with Claude Code.
           </p>
         </div>
       </div>

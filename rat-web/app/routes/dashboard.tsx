@@ -1,10 +1,12 @@
-import { createSignal, Show, onMount } from "solid-js";
+import { createSignal, Show, onMount, createEffect } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
 import { Title } from "@solidjs/meta";
+import { chatStore } from "~/stores/chatStore";
 
 export default function Dashboard() {
   const [selectedRepo, setSelectedRepo] = createSignal<string | null>(null);
   const [showPromptSheet, setShowPromptSheet] = createSignal(false);
+  const [, setRefresh] = createSignal(0);
   
   // Query for user data
   const userQuery = createQuery(() => ({
@@ -78,6 +80,12 @@ export default function Dashboard() {
       issues: 15
     }
   ];
+  
+  // Refresh UI when chat states change
+  createEffect(() => {
+    const states = chatStore.projectStates();
+    setRefresh(prev => prev + 1);
+  });
   
   onMount(() => {
     // Add swipe gesture for prompt sheet
@@ -155,7 +163,26 @@ export default function Dashboard() {
                     >
                       <div class="flex items-center justify-between">
                         <div class="flex-1">
-                          <h3 class="font-medium">{repo.name}</h3>
+                          <div class="flex items-center gap-2">
+                            <h3 class="font-medium">{repo.name}</h3>
+                            {(() => {
+                              const state = chatStore.getProjectState(repo.name);
+                              return state !== "idle" && (
+                                <div
+                                  class={`w-2 h-2 rounded-full ${
+                                    state === "generating" ? "bg-yellow-500 animate-pulse" :
+                                    state === "completed" ? "bg-green-500" :
+                                    "bg-gray-400 border border-gray-600"
+                                  }`}
+                                  title={
+                                    state === "generating" ? "Generating..." :
+                                    state === "completed" ? "Completed" :
+                                    "Idle"
+                                  }
+                                />
+                              );
+                            })()}
+                          </div>
                           <p class="text-xs text-muted-foreground mt-1">
                             {repo.description}
                           </p>

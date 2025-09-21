@@ -18,7 +18,7 @@ export default function Hero() {
         {/* Logo with cheese decorations */}
         <div className="relative inline-block">
           <h1 className="text-5xl sm:text-6xl md:text-8xl font-bold mb-4 md:mb-6 tracking-wider">
-            OMNARA
+            RAT MOBILE
           </h1>
           {/* Floating cheese emojis */}
           <span className="absolute -top-4 -left-8 md:-left-12 text-3xl md:text-5xl animate-float">🧀</span>
@@ -30,6 +30,13 @@ export default function Hero() {
         <h2 className="text-lg sm:text-xl md:text-2xl text-gray-300 mb-4 md:mb-8 font-light px-4">
           Launch & Control Claude Code from Anywhere
         </h2>
+        
+        {/* RAT Link */}
+        <p className="text-sm sm:text-base text-gray-400 mb-2">
+          <a href="#" className="text-omnara-blue hover:text-omnara-yellow transition-colors underline">
+            RAT: Remote Access Terminals
+          </a>
+        </p>
         
         {/* Subtitle */}
         <p className="text-sm sm:text-base text-gray-400 mb-8 md:mb-12 max-w-2xl mx-auto px-4">

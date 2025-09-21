@@ -1,8 +1,9 @@
-import { createSignal, onMount, createEffect } from "solid-js";
+import { createSignal, onMount, createEffect, Show } from "solid-js";
 
 interface CodeEditorProps {
   file: string | null;
   onTextSelect?: (text: string) => void;
+  repoName?: string;
 }
 
 // Mock code content for different files
@@ -356,12 +357,40 @@ export function debounce<T extends (...args: any[]) => void>(
 export function CodeEditor(props: CodeEditorProps) {
   const [content, setContent] = createSignal("");
   const [selectedText, setSelectedText] = createSignal("");
+  const [loading, setLoading] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
   let editorRef: HTMLDivElement | undefined;
+  
+  // Fetch actual file content
+  const fetchFileContent = async (filePath: string) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // For now, use mock data if no repo is specified
+      if (!props.repoName || props.repoName === "default-project") {
+        setContent(getFileContent(filePath));
+        return;
+      }
+      
+      // TODO: Implement actual file fetching from local filesystem or GitHub
+      // For local files, we'd need a backend endpoint
+      // For GitHub files, we'd use the existing API
+      
+      // Fallback to mock data for now
+      setContent(getFileContent(filePath));
+    } catch (err) {
+      setError("Failed to load file content");
+      setContent(`// Error loading file: ${filePath}`);
+    } finally {
+      setLoading(false);
+    }
+  };
   
   // Update content when file changes
   createEffect(() => {
     if (props.file) {
-      setContent(getFileContent(props.file));
+      fetchFileContent(props.file);
     }
   });
   
@@ -381,10 +410,6 @@ export function CodeEditor(props: CodeEditorProps) {
     }
   });
   
-  const getLineNumbers = () => {
-    const lines = content().split("\n");
-    return lines.map((_, i) => i + 1).join("\n");
-  };
   
   const highlightCode = (code: string) => {
     // Simple syntax highlighting
@@ -397,28 +422,39 @@ export function CodeEditor(props: CodeEditorProps) {
   };
   
   return (
-    <div class="h-full flex bg-[#0d0d0d]">
-      {/* Line Numbers */}
-      <div class="w-12 bg-[#0d0d0d] border-r border-border text-muted-foreground text-sm py-4 px-2 text-right select-none">
-        <pre class="font-mono leading-6">{getLineNumbers()}</pre>
-      </div>
+    <div class="h-full bg-[#0d0d0d] relative">
+      {/* Loading State */}
+      <Show when={loading()}>
+        <div class="absolute inset-0 bg-[#0d0d0d] flex items-center justify-center">
+          <div class="text-muted-foreground">Loading file content...</div>
+        </div>
+      </Show>
+      
+      {/* Error State */}
+      <Show when={error() && !loading()}>
+        <div class="absolute inset-0 bg-[#0d0d0d] flex items-center justify-center">
+          <div class="text-red-400">{error()}</div>
+        </div>
+      </Show>
       
       {/* Editor Content */}
-      <div class="flex-1 overflow-auto">
-        <div
-          ref={editorRef}
-          class="min-h-full p-4 font-mono text-sm leading-6 outline-none"
-          contentEditable
-          spellcheck={false}
-          innerHTML={highlightCode(content())}
-          onInput={(e) => setContent(e.currentTarget.textContent || "")}
-          style={{
-            "caret-color": "#fff",
-            "white-space": "pre-wrap",
-            "word-break": "break-word"
-          }}
-        />
-      </div>
+      <Show when={!loading() && !error()}>
+        <div class="h-full overflow-auto">
+          <div
+            ref={editorRef}
+            class="min-h-full p-4 font-mono text-sm leading-6 outline-none"
+            contentEditable
+            spellcheck={false}
+            innerHTML={highlightCode(content())}
+            onInput={(e) => setContent(e.currentTarget.textContent || "")}
+            style={{
+              "caret-color": "#fff",
+              "white-space": "pre-wrap",
+              "word-break": "break-word"
+            }}
+          />
+        </div>
+      </Show>
       
       {/* Selection Indicator */}
       {selectedText() && (

@@ -1,15 +1,17 @@
 import { createSignal, Show, onMount, onCleanup } from "solid-js";
 import { Title } from "@solidjs/meta";
-import { useSearchParams } from "@solidjs/router";
+import { useSearchParams, useNavigate } from "@solidjs/router";
 import { Sidebar } from "~/components/CoreApp/Sidebar";
 import { CodeEditor } from "~/components/CoreApp/CodeEditor";
 import { LiquidChatButton } from "~/components/CoreApp/LiquidChatButton";
 import { KeyboardPrompt } from "~/components/CoreApp/KeyboardPrompt";
 import { CodeReviewPanel } from "~/components/CoreApp/CodeReviewPanel";
 import { showToast } from "~/components/Common/Toast";
+import { chatStore } from "~/stores/chatStore";
 
 export default function CoreApp() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const repoName = searchParams.repo || "default-project";
   const [setLoadingState] = createSignal("idle");
   
@@ -18,6 +20,7 @@ export default function CoreApp() {
   const [reviewPanelOpen, setReviewPanelOpen] = createSignal(false);
   const [selectedFile, setSelectedFile] = createSignal<string | null>("src/App.tsx");
   const [selectedText, setSelectedText] = createSignal("");
+  const [chatHistory, setChatHistory] = createSignal<Array<{prompt: string; response?: string; timestamp: number}>>([]);
   
   // Mock file changes for review
   const [filesAffected] = createSignal([
@@ -26,6 +29,14 @@ export default function CoreApp() {
     { path: "src/utils/helpers.ts", additions: 5, deletions: 8, status: "modified" as const },
     { path: "src/old-file.ts", additions: 0, deletions: 25, status: "deleted" as const }
   ]);
+
+  // Load chat history on mount
+  onMount(() => {
+    const history = chatStore.getProjectHistory(repoName);
+    if (history) {
+      setChatHistory(history.prompts);
+    }
+  });
 
   // Handle keyboard shortcuts
   onMount(() => {
@@ -84,18 +95,28 @@ export default function CoreApp() {
         <div class="flex-1 flex flex-col">
           {/* Editor Header */}
           <div class="h-12 border-b border-border flex items-center justify-between px-4">
-            <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2">
               <Show when={!sidebarOpen()}>
                 <button
                   onClick={() => setSidebarOpen(true)}
                   class="p-2 hover:bg-secondary rounded-lg"
+                  title="Open Sidebar"
                 >
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
                 </button>
               </Show>
-              <span class="text-sm text-muted-foreground">{selectedFile()}</span>
+              <button
+                onClick={() => navigate('/dashboard')}
+                class="p-2 hover:bg-secondary rounded-lg"
+                title="Home"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+              </button>
+              <span class="text-sm text-muted-foreground ml-2">{selectedFile()}</span>
             </div>
             
             <div class="flex items-center gap-2">
@@ -116,6 +137,7 @@ export default function CoreApp() {
             <CodeEditor 
               file={selectedFile()}
               onTextSelect={handleTextSelection}
+              repoName={repoName}
             />
           </div>
         </div>
@@ -127,17 +149,31 @@ export default function CoreApp() {
         <Show when={keyboardPromptOpen()}>
           <KeyboardPrompt
             selectedText={selectedText()}
+            chatHistory={chatHistory()}
             onClose={() => setKeyboardPromptOpen(false)}
             onSubmit={async (prompt) => {
               console.log("Prompt submitted:", prompt);
               setKeyboardPromptOpen(false);
               setLoadingState("generating");
+              
+              // Update chat state for this project
+              chatStore.updateProjectState(repoName, "generating", prompt);
+              chatStore.addPromptToHistory(repoName, prompt);
+              
               showToast("Generating code changes...", "info");
               
               // Simulate AI generation
               await new Promise(resolve => setTimeout(resolve, 2000));
               
               setLoadingState("idle");
+              chatStore.updateProjectState(repoName, "completed", prompt);
+              chatStore.addPromptToHistory(repoName, prompt, "Generated code successfully");
+              
+              // Reset to idle after 5 seconds
+              setTimeout(() => {
+                chatStore.updateProjectState(repoName, "idle");
+              }, 5000);
+              
               showToast("Code generated successfully!", "success");
               setReviewPanelOpen(true); // Show review panel after generation
             }}
