@@ -1,4 +1,4 @@
-import { createSignal, For, Show, createMemo } from "solid-js";
+import { createSignal, For, Show, createMemo, onMount, onCleanup } from "solid-js";
 
 interface SidebarProps {
   open: boolean;
@@ -17,6 +17,12 @@ interface FileNode {
 }
 
 export function Sidebar(props: SidebarProps) {
+  const [showNewFileDialog, setShowNewFileDialog] = createSignal(false);
+  const [newFileName, setNewFileName] = createSignal("");
+  const [newFilePath, setNewFilePath] = createSignal("");
+  const [draggedNode, setDraggedNode] = createSignal<FileNode | null>(null);
+  const [dragOverNode, setDragOverNode] = createSignal<string | null>(null);
+  
   // Generate different file structures based on repo
   const getRepoStructure = (): FileNode[] => {
     const repoName = props.repoName || "default-project";
@@ -316,6 +322,83 @@ export function Sidebar(props: SidebarProps) {
   createMemo(() => {
     setFileTree(getRepoStructure());
   });
+  
+  // Handle new file creation
+  const handleNewFile = () => {
+    const fileName = newFileName();
+    const filePath = newFilePath() || "src";
+    
+    if (!fileName) return;
+    
+    // Update file tree with new file
+    const updateTree = (nodes: FileNode[]): FileNode[] => {
+      return nodes.map(node => {
+        if (node.path === filePath && node.type === "folder") {
+          const newFile: FileNode = {
+            name: fileName,
+            path: `${filePath}/${fileName}`,
+            type: "file"
+          };
+          return {
+            ...node,
+            children: [...(node.children || []), newFile],
+            expanded: true
+          };
+        }
+        if (node.children) {
+          return { ...node, children: updateTree(node.children) };
+        }
+        return node;
+      });
+    };
+    
+    setFileTree(updateTree(fileTree()));
+    props.onFileSelect(`${filePath}/${fileName}`);
+    setShowNewFileDialog(false);
+    setNewFileName("");
+    setNewFilePath("");
+  };
+  
+  // Handle drag and drop
+  const moveNode = (sourcePath: string, targetPath: string) => {
+    let movedNode: FileNode | null = null;
+    
+    // Extract the node to move
+    const extractNode = (nodes: FileNode[]): FileNode[] => {
+      return nodes.filter(node => {
+        if (node.path === sourcePath) {
+          movedNode = node;
+          return false;
+        }
+        if (node.children) {
+          node.children = extractNode(node.children);
+        }
+        return true;
+      });
+    };
+    
+    // Insert the node at target location
+    const insertNode = (nodes: FileNode[]): FileNode[] => {
+      return nodes.map(node => {
+        if (node.path === targetPath && node.type === "folder" && movedNode) {
+          return {
+            ...node,
+            children: [...(node.children || []), movedNode],
+            expanded: true
+          };
+        }
+        if (node.children) {
+          return { ...node, children: insertNode(node.children) };
+        }
+        return node;
+      });
+    };
+    
+    const treeWithoutSource = extractNode([...fileTree()]);
+    if (movedNode) {
+      setFileTree(insertNode(treeWithoutSource));
+    }
+  };
 
   const toggleFolder = (path: string) => {
     setFileTree(tree => {
@@ -335,20 +418,56 @@ export function Sidebar(props: SidebarProps) {
   };
 
   const FileTreeItem = (props: { node: FileNode; level: number }) => {
+    const [isDragging, setIsDragging] = createSignal(false);
     const isSelected = () => props.node.path === props.selectedFile;
     
+    const handleClick = () => {
+      if (props.node.type === "folder") {
+        toggleFolder(props.node.path);
+      } else {
+        props.onFileSelect(props.node.path);
+      }
+    };
+    
     return (
-      <div>
+      <div 
+        draggable={true}
+        onDragStart={(e) => {
+          setIsDragging(true);
+          setDraggedNode(props.node);
+          e.dataTransfer!.effectAllowed = "move";
+        }}
+        onDragEnd={() => {
+          setIsDragging(false);
+          setDraggedNode(null);
+          setDragOverNode(null);
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (props.node.type === "folder" && draggedNode() && draggedNode()!.path !== props.node.path) {
+            setDragOverNode(props.node.path);
+          }
+        }}
+        onDragLeave={() => {
+          setDragOverNode(null);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          const dragged = draggedNode();
+          if (dragged && props.node.type === "folder" && dragged.path !== props.node.path) {
+            moveNode(dragged.path, props.node.path);
+          }
+          setDragOverNode(null);
+        }}
+      >
         <button
-          onClick={() => {
-            if (props.node.type === "folder") {
-              toggleFolder(props.node.path);
-            } else {
-              props.onFileSelect(props.node.path);
-            }
-          }}
+          onClick={handleClick}
           class={`w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-secondary/50 rounded transition-colors ${
             isSelected() ? "bg-secondary text-primary" : ""
+          } ${
+            isDragging() ? "opacity-50" : ""
+          } ${
+            dragOverNode() === props.node.path ? "bg-primary/20" : ""
           }`}
           style={{ "padding-left": `${props.level * 12 + 8}px` }}
         >
@@ -446,13 +565,70 @@ export function Sidebar(props: SidebarProps) {
       </div>
       
       <div class="p-4 border-t border-border">
-        <button class="w-full btn btn-secondary text-sm">
+        <button 
+          class="w-full btn btn-secondary text-sm"
+          onClick={() => setShowNewFileDialog(true)}
+        >
           <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
           New File
         </button>
       </div>
+      
+      {/* New File Dialog */}
+      <Show when={showNewFileDialog()}>
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div class="bg-background border border-border rounded-lg p-6 w-96">
+            <h3 class="text-lg font-semibold mb-4">Create New File</h3>
+            
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium mb-2">File Name</label>
+                <input
+                  type="text"
+                  value={newFileName()}
+                  onInput={(e) => setNewFileName(e.currentTarget.value)}
+                  placeholder="example.tsx"
+                  class="w-full px-3 py-2 bg-secondary border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                  autofocus
+                />
+              </div>
+              
+              <div>
+                <label class="block text-sm font-medium mb-2">Folder Path (optional)</label>
+                <input
+                  type="text"
+                  value={newFilePath()}
+                  onInput={(e) => setNewFilePath(e.currentTarget.value)}
+                  placeholder="src/components"
+                  class="w-full px-3 py-2 bg-secondary border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            </div>
+            
+            <div class="flex justify-end gap-2 mt-6">
+              <button
+                class="px-4 py-2 text-sm hover:bg-secondary rounded-lg"
+                onClick={() => {
+                  setShowNewFileDialog(false);
+                  setNewFileName("");
+                  setNewFilePath("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                class="px-4 py-2 text-sm bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg"
+                onClick={handleNewFile}
+                disabled={!newFileName()}
+              >
+                Create File
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
     </div>
   );
 }

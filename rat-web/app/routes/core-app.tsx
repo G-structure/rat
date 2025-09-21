@@ -119,14 +119,27 @@ export default function CoreApp() {
               <span class="text-sm text-muted-foreground ml-2">{selectedFile()}</span>
             </div>
             
+            {/* Center UNDO Button */}
+            <div class="absolute left-1/2 -translate-x-1/2">
+              <button
+                onClick={() => {
+                  // TODO: Implement undo functionality
+                  showToast("Undo functionality coming soon!", "info");
+                }}
+                class="p-2 hover:bg-secondary rounded-lg"
+                title="Undo (Ctrl+Z)"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+              </button>
+            </div>
+            
             <div class="flex items-center gap-2">
               <button
                 onClick={() => setReviewPanelOpen(true)}
-                class="px-3 py-1.5 text-sm bg-secondary hover:bg-secondary/80 rounded-lg flex items-center gap-2"
+                class="px-3 py-1.5 text-sm bg-secondary hover:bg-secondary/80 rounded-lg"
               >
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
                 Review Changes
               </button>
             </div>
