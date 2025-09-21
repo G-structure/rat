@@ -1,7 +1,7 @@
 import { createSignal, Show, createEffect, For, createMemo } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { SwipeableViews } from "~/components/Mobile/SwipeableViews";
-import { SafeArea } from "~/components/Mobile/SafeArea";
+import { SwipeableViews } from "../../app/components/Mobile/SwipeableViews";
+import { SafeArea } from "../../app/components/Mobile/SafeArea";
 import { authState, startGitHubAuth, startClaudeAuth } from "../stores/authStore";
 import { Toast } from "../components/Toast";
 import { CheeseCelebration } from "../components/CheeseCelebration";
