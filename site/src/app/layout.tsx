@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   title: 'RAT MOBILE - Launch & Control Claude Code from Anywhere',
   description: 'Store, edit and review your agent-built codebase from your phone.',
   icons: {
-    icon: '/favicon.ico',
+    icon: '/assets/favicon.png',
   },
 }
 

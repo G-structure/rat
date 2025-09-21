@@ -15,16 +15,6 @@ export default function Hero() {
       </div>
       
       <div className="relative z-10 max-w-6xl mx-auto px-4 py-12 md:py-20 text-center">
-        {/* Logo with cheese decorations */}
-        <div className="relative inline-block">
-          <h1 className="text-5xl sm:text-6xl md:text-8xl font-bold mb-4 md:mb-6 tracking-wider">
-            RAT MOBILE
-          </h1>
-          {/* Floating cheese emojis */}
-          <span className="absolute -top-4 -left-8 md:-left-12 text-3xl md:text-5xl animate-float">🧀</span>
-          <span className="absolute -top-2 -right-8 md:-right-12 text-2xl md:text-4xl animate-float animation-delay-2000">🧀</span>
-          <span className="absolute -bottom-2 left-1/4 text-xl md:text-3xl animate-float animation-delay-4000">🧀</span>
-        </div>
         
         {/* Tagline */}
         <h2 className="text-lg sm:text-xl md:text-2xl text-gray-300 mb-4 md:mb-8 font-light px-4">
@@ -41,6 +31,22 @@ export default function Hero() {
         {/* Subtitle */}
         <p className="text-sm sm:text-base text-gray-400 mb-8 md:mb-12 max-w-2xl mx-auto px-4">
           Store, edit and review your agent-built code from your phone.
+        </p>
+        
+        {/* Rat walking image */}
+        <div className="relative my-8 md:my-12">
+          <Image 
+            src="/assets/rat-walking-coding.png" 
+            alt="Rat walking and coding"
+            width={300}
+            height={300}
+            className="mx-auto w-48 h-48 sm:w-64 sm:h-64 md:w-80 md:h-80 filter invert animate-float"
+          />
+        </div>
+        
+        {/* Quote */}
+        <p className="text-xl sm:text-2xl md:text-3xl font-semibold text-white mb-8 md:mb-12 max-w-3xl mx-auto px-4 italic">
+          "make a billion dollar app. don't make any mistakes."
         </p>
         
         {/* CTA Buttons */}
@@ -68,6 +74,17 @@ export default function Hero() {
         {/* Install prompt */}
         <div className="mt-8">
           <TerminalCommand />
+        </div>
+        
+        {/* Logo section at the bottom */}
+        <div className="mt-16 md:mt-24">
+          <Image 
+            src="/assets/logo.png" 
+            alt="RAT MOBILE"
+            width={300}
+            height={300}
+            className="mx-auto w-48 h-48 sm:w-64 sm:h-64 md:w-80 md:h-80 filter invert"
+          />
         </div>
       </div>
       
