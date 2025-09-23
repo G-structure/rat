@@ -11,6 +11,9 @@ interface ChatInstance {
 interface LiquidChatModalProps {
   isOpen: boolean;
   onClose: () => void;
+  selectedText?: string;
+  currentFile?: string;
+  repoName?: string;
 }
 
 export function LiquidChatModal(props: LiquidChatModalProps) {
@@ -216,6 +219,11 @@ export function LiquidChatModal(props: LiquidChatModalProps) {
     setTimeout(() => {
       if (inputRef && props.isOpen) {
         inputRef.focus();
+        // Auto-populate with selected text if available and input is empty
+        const instance = activeInstance();
+        if (props.selectedText && instance && !instance.content) {
+          updateInstanceContent(`Explain this code:\n\n${props.selectedText}`);
+        }
       }
     }, 100);
   });
@@ -297,12 +305,28 @@ export function LiquidChatModal(props: LiquidChatModalProps) {
                 </Show>
               </div>
               
-              {/* Chat number indicator */}
-              <Show when={chatInstances().length > 1}>
-                <div class="text-center text-white/30 text-xs mb-2">
-                  Chat {chatInstances().findIndex(i => i.id === activeInstanceId()) + 1} of {chatInstances().length}
-                </div>
-              </Show>
+              {/* Chat number indicator and context */}
+              <div class="text-center text-white/30 text-xs mb-2 space-y-1">
+                <Show when={chatInstances().length > 1}>
+                  <div>Chat {chatInstances().findIndex(i => i.id === activeInstanceId()) + 1} of {chatInstances().length}</div>
+                </Show>
+                <Show when={props.currentFile}>
+                  <div class="flex items-center justify-center gap-1">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span class="truncate max-w-[200px]">{props.currentFile}</span>
+                  </div>
+                </Show>
+                <Show when={props.repoName}>
+                  <div class="flex items-center justify-center gap-1">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    </svg>
+                    <span>{props.repoName}</span>
+                  </div>
+                </Show>
+              </div>
               
               {/* Active chat container */}
               <div class={`h-[calc(100%-5rem)] px-4 pb-4 rounded-2xl mx-3 transition-colors duration-500 ${
@@ -349,7 +373,8 @@ export function LiquidChatModal(props: LiquidChatModalProps) {
                           sendMessage();
                         }
                       }}
-                      placeholder={activeInstance()?.status === 'generating' ? "Generating response..." : "Ask anything..."}
+                      placeholder={activeInstance()?.status === 'generating' ? "Generating response..." : 
+                        props.selectedText ? `Selected: "${props.selectedText.substring(0, 50)}${props.selectedText.length > 50 ? '...' : ''}"` : "Ask anything..."}
                       class={`w-full px-4 py-3 pr-12 bg-white/5 border border-white/10 rounded-2xl resize-none focus:outline-none focus:border-white/30 text-white placeholder-white/40 transition-colors ${
                         activeInstance()?.status === 'generating' ? 'opacity-50 cursor-not-allowed' : ''
                       }`}

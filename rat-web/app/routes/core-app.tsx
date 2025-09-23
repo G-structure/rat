@@ -13,8 +13,9 @@ import { editorStore } from "~/stores/editorStore";
 export default function CoreApp() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const repoName = searchParams.repo || "default-project";
-  const [setLoadingState] = createSignal("idle");
+  const repoNameParam = searchParams.repo;
+  const repoName = Array.isArray(repoNameParam) ? repoNameParam[0] : (repoNameParam || "default-project");
+  const [loadingState, setLoadingState] = createSignal("idle");
   
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
   const [keyboardPromptOpen, setKeyboardPromptOpen] = createSignal(false);
@@ -99,7 +100,7 @@ export default function CoreApp() {
     <>
       <Title>RAT IDE - Code Editor</Title>
       
-      <div class="h-[100dvh] flex bg-background text-foreground overflow-hidden">
+      <div class="h-[100dvh] flex bg-background text-foreground overflow-hidden relative">
         {/* Sidebar */}
         <Sidebar 
           open={sidebarOpen()} 
@@ -190,7 +191,11 @@ export default function CoreApp() {
         </div>
         
         {/* Liquid Chat Button */}
-        <LiquidChatButton />
+        <LiquidChatButton 
+          selectedText={selectedText()}
+          currentFile={selectedFile() || undefined}
+          repoName={repoName}
+        />
         
         {/* Keyboard Prompt Modal */}
         <Show when={keyboardPromptOpen()}>
