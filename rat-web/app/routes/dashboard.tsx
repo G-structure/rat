@@ -14,15 +14,18 @@ export default function Dashboard() {
     queryFn: async () => {
       const isDev = import.meta.env.DEV;
       
-      if (isDev && !import.meta.env.VITE_GITHUB_CLIENT_ID) {
-        // Use mock API in development
-        const { mockApi } = await import("~/lib/api/mock-api");
-        const data = await mockApi.getMe();
-        if (!data.user) {
-          window.location.href = "/login";
-          throw new Error("Unauthorized");
-        }
-        return data;
+      if (isDev) {
+        // In development, return mock data without auth checks
+        return {
+          user: {
+            id: "dev-user",
+            login: "Developer",
+            avatar_url: "https://avatars.githubusercontent.com/u/0?v=4",
+            name: "Dev User",
+            email: "dev@example.com"
+          },
+          credits: 100
+        };
       } else {
         const response = await fetch("/api/me");
         if (!response.ok) {

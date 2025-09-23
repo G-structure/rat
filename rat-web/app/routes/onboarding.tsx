@@ -1,12 +1,12 @@
 import { createSignal, Show, createEffect, For, createMemo } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { SwipeableViews } from "../../app/components/Mobile/SwipeableViews";
-import { SafeArea } from "../../app/components/Mobile/SafeArea";
-import { authState, startGitHubAuth, startClaudeAuth } from "../stores/authStore";
-import { Toast } from "../components/Toast";
-import { CheeseCelebration } from "../components/CheeseCelebration";
-import { ClaudeAuthSuccess } from "../components/ClaudeAuthSuccess";
-import "../styles/onboarding.css";
+import { SwipeableViews } from "~/components/Mobile/SwipeableViews";
+import { SafeArea } from "~/components/Mobile/SafeArea";
+import { authState, startGitHubAuth, startClaudeAuth } from "~/stores/authStore";
+import { Toast } from "~/components/Common/Toast";
+import { CheeseCelebration } from "~/components/Onboarding/CheeseCelebration";
+import { ClaudeAuthSuccess } from "~/components/Onboarding/ClaudeAuthSuccess";
+import "~/styles/onboarding.css";
 
 type OnboardingStep = "welcome" | "github" | "claude" | "cheese";
 
@@ -88,6 +88,7 @@ export default function Onboarding() {
   };
 
   const handleComplete = () => {
+    console.log("handleComplete called - navigating to dashboard");
     setShowCelebration(false);
     navigate("/dashboard");
   };
@@ -116,7 +117,7 @@ export default function Onboarding() {
     ) {
       setHasCelebrated(true);
       setCurrentStep("cheese");
-      setShowCelebration(true);
+      // Don't automatically show celebration, let user choose
     }
   });
 
@@ -204,7 +205,7 @@ export default function Onboarding() {
                     </button>
                     <button
                       class="secondary-button w-full"
-                      onClick={() => navigate("/login")}
+                      onClick={() => navigate("/dashboard")}
                     >
                       I already have an account
                     </button>
@@ -288,7 +289,7 @@ export default function Onboarding() {
                       <button
                         class="tertiary-button w-full"
                         type="button"
-                        onClick={() => handleNext("claude")}
+                        onClick={() => navigate("/dashboard")}
                       >
                         Skip for now
                       </button>
@@ -352,7 +353,7 @@ export default function Onboarding() {
                       <button
                         class="tertiary-button w-full"
                         type="button"
-                        onClick={() => handleNext("cheese")}
+                        onClick={() => navigate("/dashboard")}
                       >
                         Skip for now
                       </button>

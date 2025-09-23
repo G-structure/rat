@@ -27,8 +27,8 @@ const [authState, setAuthState] = createStore<AuthState>({
   isLoading: false,
 });
 
-// Load auth state from IndexedDB on init
-createEffect(async () => {
+// Initialize auth state from IndexedDB
+async function initAuthState() {
   const savedUser = await get("auth-user");
   const savedToken = await get("claude-token");
   
@@ -39,7 +39,10 @@ createEffect(async () => {
       claudeToken: savedToken,
     });
   }
-});
+}
+
+// Call init on module load
+initAuthState();
 
 // GitHub Device Flow Authentication
 export async function startGitHubAuth() {
@@ -109,8 +112,7 @@ async function pollGitHubAuth(deviceCode: string, interval: number) {
         // Save to IndexedDB
         await set("auth-user", user);
         
-        // Redirect or notify success
-        window.location.href = "/dashboard";
+        // Don't redirect - let onboarding flow handle navigation
       } else if (response.status === 401) {
         // Still pending, continue polling
       } else {
